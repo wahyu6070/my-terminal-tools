@@ -1,4 +1,21 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+# Hentikan proses jika ada error
+set -e
+
+echo -e "\033[0;32m[*] Git Pull (Cek update dulu)...\033[0m"
 git pull
+
+echo -e "\033[0;32m[*] Git Add All...\033[0m"
 git add .
-git commit -m p
+
+# Menggunakan argumen pertama sebagai pesan commit.
+# Jika kosong, default-nya adalah "p"
+PESAN="${1:-p}"
+echo -e "\033[0;32m[*] Git Commit dengan pesan: '$PESAN'...\033[0m"
+git commit -m "$PESAN"
+
+echo -e "\033[0;32m[*] Git Push ke Remote...\033[0m"
 git push
+
+echo -e "\033[0;32m[*] Selesai!\033[0m"
