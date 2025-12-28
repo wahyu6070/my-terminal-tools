@@ -1,86 +1,84 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # ==========================================================
-# WAHYU KURNIAWAN - HUGO PUSHER (Game Folder Only)
+# WAHYU KURNIAWAN - HUGO DATE UPDATER (Python Logic Port)
+# Target: /content/game | Mode: Recent Only (120 Min)
 # ==========================================================
 
 set -e
 
 # --- KONFIGURASI WARNA ---
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-NC='\033[0m' 
+G='\033[32m' # Hijau
+R='\033[31m' # Merah
+C='\033[36m' # Cyan
+Y='\033[33m' # Kuning
+W='\033[0m'  # Reset
 
-# --- 1. VALIDASI LOKASI ---
-CURRENT_DIR=$(pwd)
-# Target spesifik ke folder game
-TARGET_DIR="$CURRENT_DIR/content/game"
-TIME_LIMIT_MIN=120 
+# --- KONFIGURASI TARGET ---
+TARGET_DIR="./content/game"
+TIME_LIMIT_MIN=120 # Analogi: 2 Jam (7200 detik)
 
 if [ ! -d "$TARGET_DIR" ]; then
-    echo -e "${RED}[Error] Folder '/content/game' tidak ditemukan.${NC}"
-    echo -e "${YELLOW}Pastikan Anda berada di root project Hugo.${NC}"
+    echo -e "${R}[Error] Folder $TARGET_DIR tidak ditemukan!${W}"
     exit 1
 fi
 
-# --- 2. GIT PULL ---
-echo -e "${CYAN}[1/4] Mengambil update dari GitHub...${NC}"
-git pull
-
-# --- 3. SMART DATE UPDATE (.md Only) ---
-echo -e "${CYAN}[2/4] Memindai file .md di /content/game (2 jam terakhir)...${NC}"
+echo -e "${C}[+] Memulai Smart Update 'date' (Analogi Menu 9)${W}"
+echo -e "${C}🎯 Target: $TARGET_DIR (.md saja)${W}"
 
 count_updated=0
-# Mencari hanya file .md dalam folder game
+count_skipped=0
+
+# --- PROSES PEMINDAIAN ---
+# find mencari file .md yang dimodifikasi dalam 120 menit terakhir
 while IFS= read -r -d '' file; do
     
-    # Ambil waktu modifikasi file
+    # 1. Ambil waktu modifikasi file (mtime)
+    # Format: YYYY-MM-DDTHH:MM:SS+07:00
     NEW_DATE_STR=$(date -r "$file" "+%Y-%m-%dT%H:%M:%S+07:00")
     
-    # Cek baris date di frontmatter
+    # 2. Cek apakah ada baris 'date' (Mendukung ':' atau '=')
+    # Analogi Python: REGEX_DATE = re.compile(r'^date\s*([:=])\s*(.*)$')
     if grep -qE "^date[[:space:]]*[:=]" "$file"; then
+        
+        # Ambil nilai tanggal lama yang ada di file
         OLD_LINE=$(grep -E "^date[[:space:]]*[:=]" "$file" | head -n 1)
         
-        # Bandingkan jika berbeda
-        if [[ "$OLD_LINE" != *"$NEW_DATE_STR"* ]]; then
+        # 3. Bandingkan (Hanya update jika 16 karakter pertama berbeda - YYYY-MM-DDTHH:MM)
+        # Ini mencegah penulisan ulang jika hanya detik yang berubah
+        if [[ "$OLD_LINE" != *"${NEW_DATE_STR:0:16}"* ]]; then
+            
+            # Eksekusi Update menggunakan sed (in-place)
+            # Menjaga separator asli (: atau =)
             sed -i -E "s/^(date[[:space:]]*[:=][[:space:]]*).*/\1$NEW_DATE_STR/" "$file"
             
-            REL_PATH=${file#"$CURRENT_DIR/"}
-            echo -e "${GREEN}✔ UPDATED: $REL_PATH${NC}"
+            echo -e "${G}✔ FRESH UPDATE: ${file#$TARGET_DIR/}${W}"
+            echo -e "   ${R}${OLD_LINE#*[:=]}${W} -> ${G}$NEW_DATE_STR${W}"
             ((count_updated++))
+        else
+            ((count_skipped++))
         fi
     fi
+
 done < <(find "$TARGET_DIR" -type f -name "*.md" -mmin -"$TIME_LIMIT_MIN" -print0)
 
+# --- RINGKASAN AKHIR ---
+echo -e "\n--------------------------------------------------"
 if [ $count_updated -eq 0 ]; then
-    echo -e "${YELLOW}   -> Tidak ada file .md yang perlu diupdate tanggalnya.${NC}"
+    echo -e "${Y}Tidak ada file yang perlu diperbarui tanggalnya.${W}"
 else
-    echo -e "${GREEN}   -> $count_updated file berhasil diperbarui.${NC}"
+    echo -e "${G}Sukses! $count_updated file berhasil sinkron dengan mtime.${W}"
 fi
+echo -e "${C}(Skipped $count_skipped file yang sudah sinkron)${W}"
+echo -e "--------------------------------------------------"
 
-# --- 4. HUGO BUILD CHECK ---
-echo -e "${CYAN}[3/4] Mengecek build Hugo...${NC}"
-if hugo --noBuildLock --gc --minify --quiet; then
-    echo -e "${GREEN}✔ Hugo Build: AMAN.${NC}"
-else
-    echo -e "${RED}✘ Hugo Build: GAGAL! Periksa kembali file .md Anda.${NC}"
-    exit 1
-fi
-
-# --- 5. GIT PUSH ---
-echo -e "${CYAN}[4/4] Mengirim update ke GitHub...${NC}"
-git add .
-
-# Cek apakah ada perubahan sebelum commit
-if git diff --cached --quiet; then
-    echo -e "${YELLOW}Tidak ada perubahan yang perlu dipush.${NC}"
-else
-    PESAN="${1:-Update content/game dan tanggal}"
-    git commit -m "$PESAN"
+# --- LANJUT KE HUGO & GIT ---
+if [ $count_updated -gt 0 ]; then
+    echo -e "${C}[+] Menjalankan integrasi Hugo...${W}"
+    hugo --noBuildLock --gc --minify --quiet
+    
+    git add .
+    git commit -m "Update game content & dates: $(date '+%Y-%m-%d %H:%M')"
     git push
-    echo -e "${GREEN}=========================================${NC}"
-    echo -e "${GREEN}   SELESAI! Web Anda sudah diperbarui.   ${NC}"
-    echo -e "${GREEN}=========================================${NC}"
+    echo -e "${G}✅ SEMUA SELESAI & LIVE!${W}"
 fi
