@@ -1,84 +1,94 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # ==========================================================
-# WAHYU KURNIAWAN - HUGO DATE UPDATER (Python Logic Port)
-# Target: /content/game | Mode: Recent Only (120 Min)
+# WAHYU KURNIAWAN - SMART UPDATE DATE (ANALOGI MENU 9)
 # ==========================================================
 
-set -e
-
-# --- KONFIGURASI WARNA ---
-G='\033[32m' # Hijau
-R='\033[31m' # Merah
+# --- KONFIGURASI WARNA (Sesuai Python Mas Wahyu) ---
+W='\033[0m'  # White
+R='\033[31m' # Red
+G='\033[32m' # Green
 C='\033[36m' # Cyan
-Y='\033[33m' # Kuning
-W='\033[0m'  # Reset
+Y='\033[33m' # Yellow
 
 # --- KONFIGURASI TARGET ---
 TARGET_DIR="./content/game"
-TIME_LIMIT_MIN=120 # Analogi: 2 Jam (7200 detik)
+TIME_LIMIT_SEC=7200 # 2 Jam (Analogi: TIME_LIMIT di Python)
 
+# --- 1. VALIDASI FOLDER ---
 if [ ! -d "$TARGET_DIR" ]; then
-    echo -e "${R}[Error] Folder $TARGET_DIR tidak ditemukan!${W}"
+    echo -e "${R}[Error] Folder $TARGET_DIR tidak ditemukan.${W}"
     exit 1
 fi
 
-echo -e "${C}[+] Memulai Smart Update 'date' (Analogi Menu 9)${W}"
-echo -e "${C}🎯 Target: $TARGET_DIR (.md saja)${W}"
+echo -e "${Y}[+] Memulai Smart Update 'date' (Recent Files Only)${W}"
+echo -e "${C}Target: $TARGET_DIR (.md saja)${W}"
 
 count_updated=0
 count_skipped=0
 
-# --- PROSES PEMINDAIAN ---
-# find mencari file .md yang dimodifikasi dalam 120 menit terakhir
+# --- 2. SCANNING (Analogi: os.walk & (now - mtime) > TIME_LIMIT) ---
+# find akan mencari semua file .md dalam folder game
 while IFS= read -r -d '' file; do
     
-    # 1. Ambil waktu modifikasi file (mtime)
-    # Format: YYYY-MM-DDTHH:MM:SS+07:00
-    NEW_DATE_STR=$(date -r "$file" "+%Y-%m-%dT%H:%M:%S+07:00")
+    # Ambil mtime file (Analogi: mtime = os.path.getmtime)
+    mtime=$(stat -c %Y "$file")
+    now=$(date +%s)
     
-    # 2. Cek apakah ada baris 'date' (Mendukung ':' atau '=')
-    # Analogi Python: REGEX_DATE = re.compile(r'^date\s*([:=])\s*(.*)$')
-    if grep -qE "^date[[:space:]]*[:=]" "$file"; then
-        
-        # Ambil nilai tanggal lama yang ada di file
-        OLD_LINE=$(grep -E "^date[[:space:]]*[:=]" "$file" | head -n 1)
-        
-        # 3. Bandingkan (Hanya update jika 16 karakter pertama berbeda - YYYY-MM-DDTHH:MM)
-        # Ini mencegah penulisan ulang jika hanya detik yang berubah
-        if [[ "$OLD_LINE" != *"${NEW_DATE_STR:0:16}"* ]]; then
+    # Cek batas waktu (Analogi: if (now - mtime) > TIME_LIMIT)
+    if [ $((now - mtime)) -gt $TIME_LIMIT_SEC ]; then
+        ((count_skipped++))
+        continue
+    fi
+
+    # Format tanggal baru (Analogi: new_date_str = dt.strftime)
+    new_date_str=$(date -r "$file" "+%Y-%m-%dT%H:%M:%S+07:00")
+
+    # 3. IDENTIFIKASI BARIS (Analogi: REGEX_DATE.search)
+    # Mencari baris yang dimulai dengan 'date', menangkap separator (: atau =)
+    line_data=$(grep -E "^date[[:space:]]*[:=]" "$file" | head -n 1)
+
+    if [ -n "$line_data" ]; then
+        # Ekstrak separator (Analogi: separator = match.group(1))
+        if [[ "$line_data" == *":"* ]]; then
+            sep=":"
+        else
+            sep="="
+        fi
+
+        # Ekstrak nilai lama (Analogi: old_date_str = match.group(2))
+        old_val_raw=$(echo "$line_data" | cut -d"$sep" -f2- | xargs)
+
+        # 4. PERBANDINGAN KARAKTER (Analogi: if new_date_str[:16] != old_date_str[:16])
+        if [ "${new_date_str:0:16}" != "${old_val_raw:0:16}" ]; then
             
-            # Eksekusi Update menggunakan sed (in-place)
-            # Menjaga separator asli (: atau =)
-            sed -i -E "s/^(date[[:space:]]*[:=][[:space:]]*).*/\1$NEW_DATE_STR/" "$file"
-            
+            # 5. REPLACE (Analogi: REGEX_DATE.sub)
+            # Mengganti baris pertama yang cocok dengan format yang sama
+            sed -i "0,/^date[[:space:]]*[:=].*/s//date ${sep} ${new_date_str}/" "$file"
+
             echo -e "${G}✔ FRESH UPDATE: ${file#$TARGET_DIR/}${W}"
-            echo -e "   ${R}${OLD_LINE#*[:=]}${W} -> ${G}$NEW_DATE_STR${W}"
+            echo -e "   ${R}${old_val_raw}${W} -> ${G}${new_date_str}${W}"
             ((count_updated++))
         else
             ((count_skipped++))
         fi
     fi
 
-done < <(find "$TARGET_DIR" -type f -name "*.md" -mmin -"$TIME_LIMIT_MIN" -print0)
+done < <(find "$TARGET_DIR" -type f -name "*.md" -print0)
 
-# --- RINGKASAN AKHIR ---
-echo -e "\n--------------------------------------------------"
+# --- 6. SUMMARY ---
+echo -e "\n=================================================="
 if [ $count_updated -eq 0 ]; then
-    echo -e "${Y}Tidak ada file yang perlu diperbarui tanggalnya.${W}"
+    echo -e "${Y}Tidak ada file yang diedit dalam 2 jam terakhir.${W}"
+    echo -e "${C}(Skipped $count_skipped file lama/sudah sinkron)${W}"
 else
-    echo -e "${G}Sukses! $count_updated file berhasil sinkron dengan mtime.${W}"
+    echo -e "${G}Sukses! $count_updated file berhasil diperbarui tanggalnya.${W}"
 fi
-echo -e "${C}(Skipped $count_skipped file yang sudah sinkron)${W}"
-echo -e "--------------------------------------------------"
+echo -e "=================================================="
 
-# --- LANJUT KE HUGO & GIT ---
+# --- 7. AUTO PUSH (Optional) ---
 if [ $count_updated -gt 0 ]; then
-    echo -e "${C}[+] Menjalankan integrasi Hugo...${W}"
-    hugo --noBuildLock --gc --minify --quiet
-    
     git add .
-    git commit -m "Update game content & dates: $(date '+%Y-%m-%d %H:%M')"
+    git commit -m "Update content & date: $(date '+%Y-%m-%d %H:%M')"
     git push
-    echo -e "${G}✅ SEMUA SELESAI & LIVE!${W}"
 fi
