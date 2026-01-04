@@ -20,6 +20,7 @@ TIME_LIMIT_SEC=7200 # 2 Jam (Analogi: TIME_LIMIT di Python)
 
 # --- 1. GIT PULL (Sync Awal) ---
 echo -e "${C}[1/5] Mengambil update terbaru dari GitHub...${W}"
+git config pull.rebase true
 git pull
 
 # --- 2. VALIDASI FOLDER ---

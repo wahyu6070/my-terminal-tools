@@ -4,6 +4,7 @@
 #set -e
 
 echo -e "\033[0;32m[*] Git Pull (Cek update dulu)...\033[0m"
+git config pull.rebase true
 git pull
 
 echo -e "\033[0;32m[*] Git Add All...\033[0m"
