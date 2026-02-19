@@ -41,6 +41,10 @@ download_tool() {
 
 download_tool "p"
 download_tool "push"
+download_tool "a"
+download_tool "b"
+download_tool "c"
+download_tool "d"
 
 echo -e "${BIRU}=========================================${NC}"
 echo -e "${HIJAU}✔ SETUP SELESAI! SEMUA SIAP DIGUNAKAN.${NC}"

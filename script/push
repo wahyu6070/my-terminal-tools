@@ -1,71 +1,69 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # ==========================================================
-# WAHYU KURNIAWAN - MASTER HUGO PUSHER (PYTHON ANALOGY)
-# Fungsi: Pull > Smart Date Update > Hugo Check > Push
+# WAHYU KURNIAWAN - SMART UPDATE DATE (ANALOGI MENU 9)
 # ==========================================================
 
-set -e # Berhenti jika ada error (Safety First)
-
-# --- KONFIGURASI WARNA (Sesuai Master Tools v18.0) ---
-W='\033[0m'  # Putih
-R='\033[31m' # Merah
-G='\033[32m' # Hijau
+# --- KONFIGURASI WARNA (Sesuai Python Mas Wahyu) ---
+W='\033[0m'  # White
+R='\033[31m' # Red
+G='\033[32m' # Green
 C='\033[36m' # Cyan
-Y='\033[33m' # Kuning
+Y='\033[33m' # Yellow
 
 # --- KONFIGURASI TARGET ---
 TARGET_DIR="./content/game"
-TIME_LIMIT_SEC=7200 # 2 Jam (Analogi: TIME_LIMIT di Python)
+TIME_LIMIT_SEC=86400 # 2 Jam (Analogi: TIME_LIMIT di Python)
 
-# --- 1. GIT PULL (Sync Awal) ---
-echo -e "${C}[1/5] Mengambil update terbaru dari GitHub...${W}"
-git config pull.rebase true
-git pull
-
-# --- 2. VALIDASI FOLDER ---
+# --- 1. VALIDASI FOLDER ---
 if [ ! -d "$TARGET_DIR" ]; then
-    echo -e "${R}[Error] Folder $TARGET_DIR tidak ditemukan!${W}"
+    echo -e "${R}[Error] Folder $TARGET_DIR tidak ditemukan.${W}"
     exit 1
 fi
 
-echo -e "${Y}[2/5] Memindai file .md yang diedit dalam 2 jam terakhir...${W}"
+echo -e "${Y}[+] Memulai Smart Update 'date' (Recent Files Only)${W}"
+echo -e "${C}Target: $TARGET_DIR (.md saja)${W}"
 
 count_updated=0
 count_skipped=0
 
-# --- 3. SMART DATE UPDATE (Analogi Logic Menu 9 Python) ---
-# Menggunakan find untuk list file .md di folder game
+# --- 2. SCANNING (Analogi: os.walk & (now - mtime) > TIME_LIMIT) ---
+# find akan mencari semua file .md dalam folder game
 while IFS= read -r -d '' file; do
     
     # Ambil mtime file (Analogi: mtime = os.path.getmtime)
     mtime=$(stat -c %Y "$file")
     now=$(date +%s)
     
-    # Cek batas waktu (Analogi: (now - mtime) > TIME_LIMIT)
+    # Cek batas waktu (Analogi: if (now - mtime) > TIME_LIMIT)
     if [ $((now - mtime)) -gt $TIME_LIMIT_SEC ]; then
         ((count_skipped++))
         continue
     fi
 
-    # Format tanggal baru (Analogi: new_date_str)
-    # Menggunakan zona waktu WIB (+07:00)
+    # Format tanggal baru (Analogi: new_date_str = dt.strftime)
     new_date_str=$(date -r "$file" "+%Y-%m-%dT%H:%M:%S+07:00")
 
-    # Identifikasi baris date (Analogi: REGEX_DATE.search)
+    # 3. IDENTIFIKASI BARIS (Analogi: REGEX_DATE.search)
+    # Mencari baris yang dimulai dengan 'date', menangkap separator (: atau =)
     line_data=$(grep -E "^date[[:space:]]*[:=]" "$file" | head -n 1)
 
     if [ -n "$line_data" ]; then
-        # Deteksi pemisah asli (separator)
-        if [[ "$line_data" == *":"* ]]; then sep=":"; else sep="="; fi
+        # Ekstrak separator (Analogi: separator = match.group(1))
+        if [[ "$line_data" == *":"* ]]; then
+            sep=":"
+        else
+            sep="="
+        fi
 
-        # Ambil nilai lama (Analogi: old_date_str)
+        # Ekstrak nilai lama (Analogi: old_date_str = match.group(2))
         old_val_raw=$(echo "$line_data" | cut -d"$sep" -f2- | xargs)
 
-        # Bandingkan 16 karakter pertama (Analogi: new_date_str[:16])
+        # 4. PERBANDINGAN KARAKTER (Analogi: if new_date_str[:16] != old_date_str[:16])
         if [ "${new_date_str:0:16}" != "${old_val_raw:0:16}" ]; then
             
-            # Update baris pertama (Analogi: REGEX_DATE.sub)
+            # 5. REPLACE (Analogi: REGEX_DATE.sub)
+            # Mengganti baris pertama yang cocok dengan format yang sama
             sed -i "0,/^date[[:space:]]*[:=].*/s//date ${sep} ${new_date_str}/" "$file"
 
             echo -e "${G}✔ FRESH UPDATE: ${file#$TARGET_DIR/}${W}"
@@ -75,35 +73,22 @@ while IFS= read -r -d '' file; do
             ((count_skipped++))
         fi
     fi
+
 done < <(find "$TARGET_DIR" -type f -name "*.md" -print0)
 
-# --- 4. HUGO BUILD CHECK (Integritas Kode) ---
-# Menambahkan flag --noBuildLock sesuai permintaan
-echo -e "${C}[3/5] Mengecek integritas kode Hugo (--noBuildLock)...${W}"
-if hugo --noBuildLock --gc --minify --quiet; then
-    echo -e "${G}✅ Hugo Build: AMAN (Tidak ada error).${W}"
+# --- 6. SUMMARY ---
+echo -e "\n=================================================="
+if [ $count_updated -eq 0 ]; then
+    echo -e "${Y}Tidak ada file yang diedit dalam 2 jam terakhir.${W}"
+    echo -e "${C}(Skipped $count_skipped file lama/sudah sinkron)${W}"
 else
-    echo -e "${R}❌ Hugo Build: GAGAL! Perbaiki error sebelum push.${W}"
-    exit 1
+    echo -e "${G}Sukses! $count_updated file berhasil diperbarui tanggalnya.${W}"
 fi
+echo -e "=================================================="
 
-# --- 5. GIT PUSH (Finalisasi) ---
+# --- 7. AUTO PUSH (Optional) ---
 if [ $count_updated -gt 0 ]; then
-    echo -e "${C}[4/5] Menyiapkan pengiriman ke GitHub...${W}"
     git add .
-    
-    # Pesan commit otomatis dengan timestamp WIB
-    PESAN="Update ${count_updated} games & dates ($(date '+%Y-%m-%d %H:%M'))"
-    git commit -m "$PESAN"
-    
-    echo -e "${C}[5/5] Melakukan Git Push...${W}"
+    git commit -m "Update content & date: $(date '+%Y-%m-%d %H:%M')"
     git push
-    echo -e "${G}=========================================${W}"
-    echo -e "${G}   SUKSES! Website Anda sudah live.      ${W}"
-    echo -e "${G}=========================================${W}"
-else
-    echo -e "${Y}Pesan: Tidak ada perubahan tanggal, push dibatalkan.${W}"
 fi
-
-
-
