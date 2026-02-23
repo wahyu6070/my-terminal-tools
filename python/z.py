@@ -11,7 +11,7 @@ Description:
     - Periode 1: Tanggal 1 s/d 15
     - Periode 2: Tanggal 16 s/d Akhir Bulan
     
-    [LOGIKA WAKTU - Otomatis WIB]
+    [LOGIKA WAKTU - Otomatis GMT]
     - Menampilkan ringkasan total dari "Periode Sebelumnya".
     - Menampilkan rincian harian untuk "Periode Saat Ini" (hingga kemarin).
     - Menampilkan performa "Hari Ini" secara terpisah karena data belum final.
@@ -50,9 +50,9 @@ class Config:
     BASE_URL = "https://api3.adsterratools.com/publisher/stats.json"
     USER_AGENT = "WahyuBot/4.0 (HalfMonthMode)"
     
-    # Pengaturan Zona Waktu (WIB = UTC+7)
-    # Sangat penting agar pergantian hari sesuai dengan lokasi Indonesia
-    TZ_WIB = timezone(timedelta(hours=7))
+    # Pengaturan Zona Waktu (GMT = UTC+0)
+    # Sangat penting agar pergantian hari sesuai dengan server Adsterra (GMT)
+    TZ_GMT = timezone(timedelta(hours=0))
 
 # ==============================================================================
 # 2. PENGELOLA WAKTU & PERIODE
@@ -62,8 +62,8 @@ class TimeManager:
     """Kelas khusus untuk menangani logika pembagian tanggal 1-15 dan 16-Akhir Bulan"""
     
     def __init__(self):
-        # Ambil waktu sekarang berdasarkan zona waktu WIB
-        self.now = datetime.now(Config.TZ_WIB)
+        # Ambil waktu sekarang berdasarkan zona waktu GMT
+        self.now = datetime.now(Config.TZ_GMT)
         self.today_date = self.now.date()
         
     def get_periods(self):
@@ -236,7 +236,6 @@ class ReportFormatter:
         ]
         print(tabulate(summary, tablefmt="plain"))
 
-
     def _print_current_period_table(self, curr_data, periods):
         print("\n" + "="*55)
         print(f"{Back.BLUE}{Fore.WHITE} [2] RINCIAN PERIODE SAAT INI (Hingga Kemarin) {Style.RESET_ALL}")
@@ -301,7 +300,7 @@ class ReportFormatter:
     def _print_today_live(self, today_data, periods):
         print("\n" + "="*55)
         print(f"{Back.YELLOW}{Fore.BLACK}{Style.BRIGHT} [3] LIVE STATS HARI INI (Data Belum Final) {Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Tanggal: {periods['today'].strftime('%d %b %Y')} (WIB){Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Tanggal: {periods['today'].strftime('%d %b %Y')} (GMT){Style.RESET_ALL}")
         print("="*55)
         
         if not today_data:
@@ -335,7 +334,7 @@ if __name__ == "__main__":
     print(f"{Style.RESET_ALL}")
     
     print(f"User   : Wahyu Kurniawan")
-    print(f"Sistem : Siklus 15-Harian (Pisah Hari Ini)")
+    print(f"Sistem : Siklus 15-Harian (Pisah Hari Ini - GMT)")
     print("-" * 61)
     
     # 1. Inisialisasi Pengelola Waktu
