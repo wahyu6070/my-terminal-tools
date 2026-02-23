@@ -19,4 +19,5 @@ Untuk menginstal seluruh *tools* ini ke dalam perangkat Anda, cukup salin dan ja
 - Membangun lingkungan eksekusi Python yang **terisolasi** di dalam sistem.
 
 ```bash
-pkg update -y && pkg install curl wget -y && curl -sL https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/start.sh -o start.sh && bash start.sh```
+pkg update -y && pkg install curl wget -y && curl -sL https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/start.sh -o start.sh && bash start.sh
+```
