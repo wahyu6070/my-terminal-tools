@@ -46,7 +46,7 @@ except ImportError:
 
 class Config:
     # Kredensial API Adsterra
-    API_KEY = "d99b6eb88c389817b16af23dd030f280"
+    API_KEY = "62353c425ac1369b6a358b0e44b79377"
     BASE_URL = "https://api3.adsterratools.com/publisher/stats.json"
     USER_AGENT = "WahyuBot/4.0 (HalfMonthMode)"
     
