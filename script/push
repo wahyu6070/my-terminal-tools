@@ -1,9 +1,10 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # ==============================================================================
-# SCRIPT: SMART UPDATE DATE & AUTO PUSH (v2.0)
+# SCRIPT: SMART UPDATE DATE & AUTO PUSH (v2.1)
 # AUTHOR: Wahyu Kurniawan
 # DESCRIPTION: 
+#   Menyinkronkan repository dengan remote server menggunakan git pull.
 #   Secara otomatis memindai file Markdown (.md) di dalam folder target,
 #   mencari file yang baru saja dimodifikasi (dalam waktu yang ditentukan),
 #   lalu memperbarui parameter 'date:' di Front Matter agar sesuai dengan
@@ -31,33 +32,56 @@ JAM_LIMIT=$((TIME_LIMIT_SEC / 3600))
 echo -e "${C}======================================================${W}"
 echo -e "${M}   S M A R T   U P D A T E   D A T E   &   P U S H    ${W}"
 echo -e "${C}======================================================${W}"
-echo -e "${Y}[*] Memulai pemindaian file Markdown...${W}"
+echo -e "${Y}[*] Memulai inisialisasi sistem otomatis...${W}"
 echo -e "${C} -> Target Folder: ${W}${TARGET_DIR}"
 echo -e "${C} -> Batas Waktu  : ${W}${JAM_LIMIT} Jam Terakhir (${TIME_LIMIT_SEC} Detik)\n"
 
 # --- 3. VALIDASI AWAL SISTEM ---
-# Cek eksistensi direktori target
+# Cek eksistensi direktori target untuk memastikan letak eksekusi benar
 if [ ! -d "$TARGET_DIR" ]; then
     echo -e "${R}[ERROR] Folder $TARGET_DIR tidak ditemukan!${W}"
     echo -e "${Y}Pastikan Anda menjalankan perintah ini di root direktori Hugo Anda.${W}"
     exit 1
 fi
 
-# Cek apakah ini adalah root repository git
+# Cek apakah ini adalah root repository git agar perintah git tidak error
 if [ ! -d ".git" ]; then
     echo -e "${R}[ERROR] Direktori ini bukan repository Git! (.git tidak ditemukan)${W}"
     echo -e "${Y}Harap jalankan perintah di dalam repository website Anda.${W}"
     exit 1
 fi
 
+# --- 4. SINKRONISASI REPOSITORY (GIT PULL) ---
+# Mengambil perubahan terbaru dari server jarak jauh (GitHub) sebelum memodifikasi file lokal.
+# Ini krusial untuk mencegah "merge conflict" atau penolakan saat melakukan push nantinya.
+echo -e "${B}[*] Menyinkronkan data dengan remote repository...${W}"
+echo -e "${C} -> Menjalankan command 'git pull origin main/master'${W}"
+
+# Menjalankan pull dengan --no-edit agar tidak terjebak di editor teks saat ada merge otomatis.
+# Output disimpan ke dalam variabel agar tampilan terminal tetap bersih dan bisa divalidasi.
+git_pull_output=$(git pull --no-edit 2>&1)
+git_pull_status=$?
+
+if [ $git_pull_status -eq 0 ]; then
+    echo -e "${G}✔ Git Pull berhasil. Repository lokal sudah tersinkronisasi dengan baik.${W}"
+    # Tampilkan sedikit ringkasan hasil pull, misalnya "Already up to date" atau daftar file
+    echo -e "${C} -> Detail Sinkronisasi:\n${W}${git_pull_output}\n"
+else
+    echo -e "${R}✘ GAGAL melakukan Git Pull! Sinkronisasi terhenti.${W}"
+    echo -e "${Y}Pesan Error Git:${W}\n${git_pull_output}"
+    echo -e "${R}Proses dihentikan!${W} ${Y}Silakan selesaikan konflik (merge conflict) atau periksa koneksi internet Termux Anda sebelum melanjutkan.${W}"
+    exit 1
+fi
+
+# Variabel penghitung statistik
 count_updated=0
 count_skipped=0
 count_error=0
 
-# --- 4. PROSES PEMINDAIAN FILE (FIND LOOP) ---
-echo -e "${B}[*] Memindai struktur folder dan menghitung timestamp...${W}"
+# --- 5. PROSES PEMINDAIAN FILE (FIND LOOP) ---
+echo -e "${B}[*] Memindai struktur folder dan menghitung timestamp modifikasi...${W}"
 
-# find akan mencari semua file .md dalam folder game dengan aman
+# find akan mencari semua file .md dalam folder target secara mendalam dan aman (mendukung spasi pada nama file)
 while IFS= read -r -d '' file; do
     
     # Ekstrak waktu modifikasi file dalam format Unix Epoch (Detik)
@@ -72,32 +96,33 @@ while IFS= read -r -d '' file; do
     fi
 
     # Format tanggal baru sesuai standar Hugo/Markdown (ISO 8601 dengan Timezone WIB)
-    # Contoh format: 2026-02-23T15:30:00+07:00
+    # Contoh format output: 2026-02-23T15:30:00+07:00
     new_date_str=$(date -r "$file" "+%Y-%m-%dT%H:%M:%S+07:00")
 
-    # Mengambil baris pertama yang mendefinisikan 'date' di Front Matter
+    # Mengambil baris pertama yang mendefinisikan 'date' di Front Matter YAML
     line_data=$(grep -E "^date[[:space:]]*[:=]" "$file" | head -n 1)
 
     if [ -n "$line_data" ]; then
-        # Deteksi pemisah (apakah menggunakan titik dua ':' atau sama dengan '=')
+        # Deteksi pemisah secara dinamis (apakah Front Matter menggunakan titik dua ':' atau sama dengan '=')
         if [[ "$line_data" == *":"* ]]; then
             sep=":"
         else
             sep="="
         fi
 
-        # Ekstrak nilai tanggal yang lama dengan memotong string
+        # Ekstrak nilai tanggal yang lama dengan memotong string untuk membandingkannya nanti
         old_val_raw=$(echo "$line_data" | cut -d"$sep" -f2- | xargs)
 
-        # Bandingkan 16 karakter pertama (YYYY-MM-DDTHH:MM)
-        # Jika string berbeda, berarti file perlu di-update
+        # Bandingkan 16 karakter pertama (YYYY-MM-DDTHH:MM) antara tanggal lama dan tanggal modifikasi baru.
+        # Jika string berbeda pada level menit, berarti file benar-benar perlu di-update.
         if [ "${new_date_str:0:16}" != "${old_val_raw:0:16}" ]; then
             
-            # Gunakan GNU sed untuk mereplace kemunculan PERTAMA dari string date
-            # Pola 0,/.../ memastikan hanya Front Matter yang diubah, bukan isi konten utama
+            # Gunakan GNU sed untuk mereplace kemunculan PERTAMA dari string date.
+            # Pola 0,/.../ memastikan perubahan ini hanya terjadi di blok Front Matter paling atas, 
+            # sehingga konten utama Markdown aman dari modifikasi yang tidak disengaja.
             sed -i "0,/^date[[:space:]]*[:=].*/s//date ${sep} ${new_date_str}/" "$file"
 
-            # Verifikasi apakah proses sed berjalan lancar tanpa interupsi
+            # Verifikasi apakah proses stream editor (sed) berjalan lancar tanpa interupsi atau error permission
             if [ $? -eq 0 ]; then
                 echo -e "${G}✔ UPDATED : ${W}${file#$TARGET_DIR/}"
                 echo -e "   ${R}Lama : ${old_val_raw}${W}"
@@ -108,24 +133,24 @@ while IFS= read -r -d '' file; do
                 ((count_error++))
             fi
         else
-            # Waktu sama, tidak perlu melakukan replace string
+            # Waktu sudah identik, menghemat operasi tulis (I/O) pada disk perangkat
             ((count_skipped++))
         fi
     fi
 
-# Membatasi pencarian hanya pada ekstensi .md
+# Membatasi pencarian dengan ekstensi .md agar file sistem lain tidak tersentuh
 done < <(find "$TARGET_DIR" -type f -name "*.md" -print0)
 
-# --- 5. RINGKASAN PEMINDAIAN ---
+# --- 6. RINGKASAN PEMINDAIAN ---
 echo -e "\n${C}======================================================${W}"
 echo -e "${M}   R I N G K A S A N   E K S E K U S I                ${W}"
 echo -e "${C}======================================================${W}"
 
 if [ $count_updated -eq 0 ]; then
     echo -e "${Y}[INFO] Tidak ada file Markdown yang perlu diperbarui tanggalnya.${W}"
-    echo -e "${C} -> Detail: $count_skipped file dilewati (Di luar batas waktu atau sudah sinkron).${W}"
+    echo -e "${C} -> Detail: $count_skipped file dilewati (Di luar batas waktu atau timestamp sudah sinkron).${W}"
     
-    # Tampilkan jika terjadi error permission
+    # Tampilkan error jika terjadi masalah hak akses penulisan (permission denied)
     if [ $count_error -gt 0 ]; then
         echo -e "${R} -> PERINGATAN: Terdapat $count_error file gagal ditulis!${W}"
     fi
@@ -135,29 +160,32 @@ else
 fi
 echo -e "${C}======================================================${W}\n"
 
-# --- 6. AUTOMASI GIT PUSH (DENGAN SMART DETECTION) ---
-# Memeriksa apakah ada perubahan apapun pada repository (termasuk file lain)
+# --- 7. AUTOMASI GIT PUSH (DENGAN SMART DETECTION) ---
+# Memeriksa kembali apakah ada perubahan apapun pada repository setelah pemindaian file selesai
+# Ini mencakup file Markdown yang diubah, maupun perubahan manual lain di dalam repo Anda.
 if [ -n "$(git status --porcelain)" ]; then
-    echo -e "${Y}[*] Mendeteksi perubahan direktori, mengeksekusi Git Push...${W}"
+    echo -e "${Y}[*] Mendeteksi modifikasi di direktori lokal, mengeksekusi Git Push...${W}"
     
-    echo -e "${B} -> Menjalankan command 'git add .'${W}"
+    echo -e "${B} -> Menjalankan command 'git add .' untuk memuat seluruh perubahan...${W}"
     git add .
     
+    # Format pesan commit dengan timestamp yang sangat rinci agar log Git mudah dilacak
     COMMIT_MSG="Auto-update content & timestamp: $(date '+%Y-%m-%d %H:%M:%S WIB')"
     echo -e "${B} -> Menjalankan command 'git commit'${W}"
     echo -e "${C}    Pesan Commit: \"$COMMIT_MSG\"${W}"
     git commit -m "$COMMIT_MSG"
     
-    echo -e "${B} -> Menjalankan command 'git push' ke remote server...${W}"
+    echo -e "${B} -> Menjalankan command 'git push' untuk mengunggah ke remote server...${W}"
     git push
     
+    # Deteksi akhir apakah dorongan data ke GitHub berjalan mulus
     if [ $? -eq 0 ]; then
         echo -e "\n${G}✔ PROSES SINKRONISASI PUSH SELESAI DENGAN SUKSES!${W}"
     else
         echo -e "\n${R}✘ GAGAL MELAKUKAN GIT PUSH!${W}"
-        echo -e "${Y}Mohon periksa status koneksi jaringan atau konfigurasi SSH GitHub Anda.${W}"
+        echo -e "${Y}Mohon periksa status koneksi jaringan Termux Anda atau periksa apakah akses kunci SSH/Token GitHub masih berlaku.${W}"
     fi
 else
-    # Mencegah git error akibat mencoba nge-push repo yang tidak ada perubahannya
-    echo -e "${G}[INFO] Tidak ada perubahan pada file (working tree clean). Proses Push dilewati.${W}"
+    # Mencegah terminal melemparkan peringatan akibat perintah git push kosong
+    echo -e "${G}[INFO] Tidak ada perubahan terdeteksi pada file lokal (working tree clean). Proses Push dilewati.${W}"
 fi
