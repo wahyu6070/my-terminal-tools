@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# Nama Script : img (Image Uploader, WebP Compressor & Auto-Sequencer)
+# Fungsi      : Mengkompresi gambar ke WebP (Kualitas Sangat Rendah untuk AI), 
+#               mengubah nama secara berurutan (img1.webp - img5.webp), dan 
+#               mengunggahnya ke VPS secara otomatis dengan menimpa file lama.
+# Dependensi  : cwebp (libwebp), scp (openssh), ssh (openssh), bc, file, stat
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# KONFIGURASI VPS & DIREKTORI (Pembaruan Path & Kualitas)
+# ------------------------------------------------------------------------------
+VPS_USER="peniru"
+VPS_HOST="103.150.117.208"
+VPS_PORT="22"                        # Port SSH VPS
+VPS_DIR="/home/peniru"               # Direktori root user di VPS
+DOMAIN_URL="http://${VPS_HOST}"      # URL dasar (jika nanti diekspos ke web server)
+
+# Konfigurasi Kompresi & State
+DEFAULT_QUALITY="20"                 # Kualitas kompresi WebP (Sangat hemat kuota)
+MAX_FILES="5"                        # Batas maksimal (img1 - img5)
+PREFIX_NAME="img"                    # Awalan nama file
+TEMP_DIR="${TMPDIR:-/tmp}/img_upload_cache"
+STATE_FILE="${HOME}/.img_uploader_state" # File pelacak urutan (1-5)
+
+# ------------------------------------------------------------------------------
+# KONFIGURASI WARNA OUTPUT (ANSI Escape Codes)
+# ------------------------------------------------------------------------------
+RESET="\e[0m"
+BOLD="\e[1m"
+RED="\e[1;31m"
+GREEN="\e[1;32m"
+YELLOW="\e[1;33m"
+BLUE="\e[1;34m"
+MAGENTA="\e[1;35m"
+CYAN="\e[1;36m"
+
+# ------------------------------------------------------------------------------
+# FUNGSI UTILITAS LOGGING
+# ------------------------------------------------------------------------------
+log_info() { echo -e "${BLUE}[INFO]${RESET} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${RESET} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${RESET} $1"; }
+log_error() { echo -e "${RED}[ERROR]${RESET} $1"; exit 1; }
+log_system() { echo -e "${MAGENTA}[SYSTEM]${RESET} $1"; }
+
+# ------------------------------------------------------------------------------
+# FUNGSI BANTUAN (HELP MENU)
+# ------------------------------------------------------------------------------
+show_help() {
+    echo -e "${BOLD}${CYAN}PENGGUNAAN:${RESET}"
+    echo -e "  img [opsi] <file_gambar>"
+    echo ""
+    echo -e "${BOLD}${CYAN}OPSI KHUSUS:${RESET}"
+    echo -e "  -q <angka>   Atur kualitas kompresi WebP (0-100). Default: ${DEFAULT_QUALITY}"
+    echo -e "  -u <user>    Atur username VPS. Default: ${VPS_USER}"
+    echo -e "  -h <ip>      Atur IP/Host VPS. Default: ${VPS_HOST}"
+    echo -e "  -p <port>    Atur Port SSH VPS. Default: ${VPS_PORT}"
+    echo -e "  -d <dir>     Atur direktori tujuan di VPS. Default: ${VPS_DIR}"
+    echo -e "  -r           Reset urutan penamaan file kembali ke ${PREFIX_NAME}1.webp"
+    echo -e "  --help       Tampilkan menu bantuan"
+    echo ""
+    echo -e "${BOLD}${CYAN}CONTOH:${RESET}"
+    echo -e "  img /sdcard/Pictures/diagram.jpg"
+    echo -e "  img -q 10 dokumentasi.png    (Kualitas ekstrem 10%)"
+    echo -e "  img -r error_log.jpg         (Reset counter ke img1 lalu proses upload)"
+    exit 0
+}
+
+# ------------------------------------------------------------------------------
+# FUNGSI PENGECEKAN DEPENDENSI & KONEKSI VPS
+# ------------------------------------------------------------------------------
+check_dependencies() {
+    log_system "Memeriksa ketersediaan modul inti Termux..."
+    local deps=("cwebp" "scp" "ssh" "bc" "file" "stat" "ping")
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" &> /dev/null; then
+            log_error "Perintah '$dep' tidak ditemukan. Jalankan: pkg install libwebp openssh bc file inetutils"
+        fi
+    done
+}
+
+# ------------------------------------------------------------------------------
+# FUNGSI KALKULASI UKURAN FILE (GNU & BSD Compatible)
+# ------------------------------------------------------------------------------
+get_file_size() {
+    local file_path="$1"
+    stat -c%s "$file_path" 2>/dev/null || stat -f%z "$file_path" 2>/dev/null
+}
+
+format_size() {
+    local bytes="$1"
+    if [ "$bytes" -lt 1024 ]; then
+        echo "${bytes} B"
+    elif [ "$bytes" -lt 1048576 ]; then
+        echo "$(echo "scale=2; $bytes / 1024" | bc) KB"
+    else
+        echo "$(echo "scale=2; $bytes / 1048576" | bc) MB"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# FUNGSI MANAJEMEN URUTAN FILE (STATE MANAGER)
+# ------------------------------------------------------------------------------
+get_next_filename() {
+    local current_index=1
+    
+    # Membaca state file jika sudah pernah diinisialisasi sebelumnya
+    if [ -f "$STATE_FILE" ]; then
+        current_index=$(cat "$STATE_FILE")
+        
+        # Validasi keamanan data: Jika isi file rusak/bukan angka, paksa kembali ke 1
+        if ! [[ "$current_index" =~ ^[0-9]+$ ]]; then
+            log_warn "State file rusak atau tidak valid. Mengembalikan nilai awal ke 1."
+            current_index=1
+        fi
+    fi
+
+    # Logika rotasi: Jika index melebihi 5, kembali menimpa dari urutan 1
+    if [ "$current_index" -gt "$MAX_FILES" ]; then
+        log_system "Siklus penuh (${MAX_FILES} gambar). Memutar ulang nama ke urutan 1."
+        current_index=1
+    fi
+
+    echo "$current_index"
+}
+
+update_state() {
+    local current_index="$1"
+    local next_index=$((current_index + 1))
+    
+    # Menyimpan index gambar selanjutnya untuk dieksekusi pada pemanggilan berikutnya
+    echo "$next_index" > "$STATE_FILE"
+}
+
+# ------------------------------------------------------------------------------
+# PARSING ARGUMEN CLI MENGGUNAKAN GETOPTS
+# ------------------------------------------------------------------------------
+QUALITY="$DEFAULT_QUALITY"
+RESET_COUNTER=false
+
+while getopts "q:u:h:p:d:r-:" opt; do
+    case ${opt} in
+        q ) QUALITY=$OPTARG ;;
+        u ) VPS_USER=$OPTARG ;;
+        h ) VPS_HOST=$OPTARG ;;
+        p ) VPS_PORT=$OPTARG ;;
+        d ) VPS_DIR=$OPTARG ;;
+        r ) RESET_COUNTER=true ;;
+        - ) 
+            case "${OPTARG}" in
+                help) show_help ;;
+                *) log_error "Parameter gagal dikenali: --${OPTARG}" ;;
+            esac ;;
+        \? ) show_help ;;
+    esac
+done
+shift $((OPTIND -1))
+
+INPUT_FILE="$1"
+
+# ------------------------------------------------------------------------------
+# PROSES RESET COUNTER MANUAL
+# ------------------------------------------------------------------------------
+if [ "$RESET_COUNTER" = true ]; then
+    echo "1" > "$STATE_FILE"
+    log_info "Penghitung (counter) memori telah di-reset secara paksa ke ${PREFIX_NAME}1.webp."
+    
+    # Mengizinkan eksekusi hanya untuk reset tanpa mengunggah file baru
+    if [ -z "$INPUT_FILE" ]; then
+        log_success "Selesai. Eksekusi berikutnya akan dimulai dari ${PREFIX_NAME}1.webp"
+        exit 0
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# VALIDASI INTEGRITAS FILE INPUT
+# ------------------------------------------------------------------------------
+if [ -z "$INPUT_FILE" ]; then
+    log_error "Path file gambar tidak disisipkan.\nGunakan perintah 'img --help' untuk melihat struktur instruksi."
+fi
+
+if [ ! -f "$INPUT_FILE" ]; then
+    log_error "File sumber '$INPUT_FILE' tidak eksis di dalam sistem file."
+fi
+
+# Membaca MIME Type byte header asli untuk menghindari ekstensi file palsu
+MIME_TYPE=$(file -b --mime-type "$INPUT_FILE")
+if [[ "$MIME_TYPE" != "image/jpeg" && "$MIME_TYPE" != "image/png" && "$MIME_TYPE" != "image/webp" ]]; then
+    log_error "Ekstensi tidak didukung! Deteksi sistem: ($MIME_TYPE). Script ini dikonfigurasi untuk JPG, PNG, atau WebP murni."
+fi
+
+# ------------------------------------------------------------------------------
+# PEMBUATAN STRUKTUR PENAMAAN TARGET (img1.webp -> img5.webp)
+# ------------------------------------------------------------------------------
+FILE_INDEX=$(get_next_filename)
+WEBP_FILENAME="${PREFIX_NAME}${FILE_INDEX}.webp"
+
+mkdir -p "$TEMP_DIR"
+COMPRESSED_FILE="${TEMP_DIR}/${WEBP_FILENAME}"
+
+# ------------------------------------------------------------------------------
+# PROSES UTAMA 1: KOMPRESI GAMBAR KE WEBP (KUALITAS 20)
+# ------------------------------------------------------------------------------
+check_dependencies
+
+ORIGINAL_SIZE=$(get_file_size "$INPUT_FILE")
+FORMATTED_ORIG_SIZE=$(format_size "$ORIGINAL_SIZE")
+
+log_info "Engine Kompresi : ${BOLD}$(basename "$INPUT_FILE")${RESET} -> [${FORMATTED_ORIG_SIZE}]"
+log_info "Nama Alokasi    : ${BOLD}${CYAN}${WEBP_FILENAME}${RESET} (Slot memori ${FILE_INDEX}/${MAX_FILES})"
+log_info "Konfigurasi Mutu: ${QUALITY}% (Optimasi Ekstrem AI)"
+
+# Mengeksekusi modul cwebp dari libwebp. -quiet menjaga kebersihan log CLI Termux
+cwebp -q "$QUALITY" -quiet "$INPUT_FILE" -o "$COMPRESSED_FILE"
+
+if [ ! -f "$COMPRESSED_FILE" ]; then
+    log_error "cwebp gagal menulis file kompresi. Pastikan memory mencukupi."
+fi
+
+COMPRESSED_SIZE=$(get_file_size "$COMPRESSED_FILE")
+FORMATTED_COMP_SIZE=$(format_size "$COMPRESSED_SIZE")
+
+# Menghitung rasio reduksi memori (berguna memantau efisiensi token transfer AI)
+SAVED_BYTES=$((ORIGINAL_SIZE - COMPRESSED_SIZE))
+if [ "$SAVED_BYTES" -gt 0 ]; then
+    SAVED_PERCENT=$(echo "scale=2; ($SAVED_BYTES / $ORIGINAL_SIZE) * 100" | bc)
+    log_success "Kompresi Selesai! Ukuran final: $FORMATTED_COMP_SIZE (Efisiensi data: ${SAVED_PERCENT}%)"
+else
+    log_warn "Kompresi tidak mengubah ukuran secara radikal. Gambar sudah sangat kecil."
+fi
+
+# ------------------------------------------------------------------------------
+# PROSES UTAMA 2: UPLOAD & OVERWRITE KE VPS MENGGUNAKAN SCP
+# ------------------------------------------------------------------------------
+log_info "Membuka sesi transmisi SCP ke terminal VPS: ${VPS_USER}@${VPS_HOST}..."
+
+# Mengeksekusi SCP. Parameter -q digunakan agar indikator transfer rate tidak menumpuk di log
+scp -P "$VPS_PORT" -q "$COMPRESSED_FILE" "${VPS_USER}@${VPS_HOST}:${VPS_DIR}/${WEBP_FILENAME}"
+
+if [ $? -eq 0 ]; then
+    log_success "Data gambar berhasil ditulis/ditimpa ke VPS!"
+    
+    # Hanya memperbarui file urutan sistem lokal BILA UPLOAD SUKSES
+    update_state "$FILE_INDEX"
+    
+    FINAL_PATH="${VPS_DIR}/${WEBP_FILENAME}"
+    
+    echo -e "\n================================================================="
+    echo -e "${BOLD}${GREEN}✅ GAMBAR SIAP DIINTEGRASIKAN KE CLAUDE CODE${RESET}"
+    echo -e "Gunakan path lokal VPS berikut untuk instruksi ke AI:"
+    echo -e "Path Absolut VPS : ${BOLD}${CYAN}${FINAL_PATH}${RESET}"
+    echo -e "Nama File        : ${BOLD}${YELLOW}${WEBP_FILENAME}${RESET}"
+    echo -e "=================================================================\n"
+else
+    log_error "Koneksi SCP ditolak. Pastikan IP, user 'peniru', dan path '${VPS_DIR}' sudah tepat. Cek juga status direktori tersebut di dalam VPS."
+fi
+
+# ------------------------------------------------------------------------------
+# PEMBERSIHAN (CLEANUP) CACHE LOKAL DI TERMUX
+# ------------------------------------------------------------------------------
+log_system "Mengosongkan memori penyimpanan sementara lokal..."
+rm -f "$COMPRESSED_FILE"
+log_success "Pipeline kompresi dan unggah berakhir tanpa kendala."
+
+exit 0
