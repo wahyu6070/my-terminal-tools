@@ -12,11 +12,11 @@ Command `p` dan `push` memperbarui field `lastmod:` pada front matter Markdown y
 
 ## Cara Instalasi Terpadu (One-Click Install)
 
-Installer mendukung **Termux** dan **Ubuntu/Debian**. Perintah pelacak Adsterra memakai virtual environment Python terisolasi, sehingga tidak mengubah paket Python global.
+Installer mendukung **Termux** dan **Ubuntu/Debian** serta menjalankan pelacak Adsterra dengan Python global sistem.
 
 *Script installer* ini akan secara otomatis:
 - Mengunduh script Python dan Git Automation.
-- Memasang pustaka Python yang dibutuhkan (`requests`, `tabulate`, `colorama`) ke virtual environment terisolasi.
+- Memasang pustaka Python yang dibutuhkan (`requests`, `tabulate`, `colorama`) secara global.
 - Membuat command `a`, `b`, `c`, `d`, `z`, `p`, dan `push`.
 
 ### Termux
@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/st
 Jalankan instalasi sebagai user biasa (bukan `sudo`):
 
 ```bash
-sudo apt update && sudo apt install -y python3 python3-venv python3-pip curl git
+sudo apt update && sudo apt install -y python3 python3-requests python3-tabulate python3-colorama curl git
 curl -fsSL https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/start.sh | bash
 ```
 

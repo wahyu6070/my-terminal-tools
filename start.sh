@@ -22,42 +22,39 @@ fi
 for command in curl "$PYTHON_BIN"; do
     command -v "$command" >/dev/null 2>&1 || {
         echo "ERROR: '$command' belum tersedia." >&2
-        [[ "$PLATFORM" == "Termux" ]] && echo "Jalankan: pkg install python curl" || echo "Jalankan: sudo apt install python3 python3-venv curl"
+        [[ "$PLATFORM" == "Termux" ]] && echo "Jalankan: pkg install python curl" || echo "Jalankan: sudo apt install python3 curl"
         exit 1
     }
 done
 
 PYTHON_DIR="$DATA_DIR/python"
 TOOLS_DIR="$DATA_DIR/script"
-VENV_DIR="$DATA_DIR/venv"
 BASH_BIN="$(command -v bash)"
+PYTHON_EXECUTABLE="$(command -v "$PYTHON_BIN")"
 mkdir -p "$BIN_DIR" "$PYTHON_DIR" "$TOOLS_DIR"
 
-echo "[*] Menyiapkan virtual environment Python ($PLATFORM)..."
-if [[ ! -x "$VENV_DIR/bin/python" ]] || ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
-    if [[ -d "$VENV_DIR" ]]; then
-        echo " -> Environment lama tidak lengkap; membangun ulang..."
-        venv_args=(--clear "$VENV_DIR")
+echo "[*] Menyiapkan dependensi Python global ($PLATFORM)..."
+if [[ "$PLATFORM" == "Termux" ]]; then
+    "$PYTHON_EXECUTABLE" -m pip install --upgrade requests tabulate colorama
+elif ! "$PYTHON_EXECUTABLE" -c 'import requests, tabulate, colorama' >/dev/null 2>&1; then
+    packages=(python3-requests python3-tabulate python3-colorama)
+    if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+        apt-get update
+        apt-get install -y "${packages[@]}"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo apt-get update
+        sudo apt-get install -y "${packages[@]}"
     else
-        venv_args=("$VENV_DIR")
-    fi
-
-    if ! "$PYTHON_BIN" -m venv "${venv_args[@]}"; then
-        echo "ERROR: Gagal membuat virtual environment Python." >&2
-        [[ "$PLATFORM" == "Termux" ]] && echo "Jalankan: pkg reinstall python" || echo "Jalankan: sudo apt install --reinstall python3-venv"
+        echo "ERROR: Dependensi Python belum tersedia." >&2
+        echo "Jalankan sebagai root: apt install ${packages[*]}" >&2
         exit 1
     fi
 fi
 
-if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
-    echo " -> pip belum tersedia; menjalankan ensurepip..."
-    "$VENV_DIR/bin/python" -m ensurepip --upgrade || {
-        echo "ERROR: pip gagal dipasang ke virtual environment." >&2
-        exit 1
-    }
+if ! "$PYTHON_EXECUTABLE" -c 'import requests, tabulate, colorama' >/dev/null 2>&1; then
+    echo "ERROR: requests, tabulate, atau colorama belum dapat diimpor oleh $PYTHON_EXECUTABLE." >&2
+    exit 1
 fi
-"$VENV_DIR/bin/python" -m pip install --upgrade pip
-"$VENV_DIR/bin/python" -m pip install requests tabulate colorama
 
 download() {
     local source="$1" destination="$2"
@@ -83,11 +80,11 @@ EOF
     chmod +x "$BIN_DIR/$name"
 }
 
-create_wrapper a "$PYTHON_DIR/cek_semua_data_adsterra_8_day.py" "\"$VENV_DIR/bin/python\""
-create_wrapper b "$PYTHON_DIR/cek_semua_data_adsterra_30_day.py" "\"$VENV_DIR/bin/python\""
-create_wrapper c "$PYTHON_DIR/cek_semua_data_adsterra_3_bulan.py" "\"$VENV_DIR/bin/python\""
-create_wrapper d "$PYTHON_DIR/cek_semua_data_adsterra.py" "\"$VENV_DIR/bin/python\""
-create_wrapper z "$PYTHON_DIR/z.py" "\"$VENV_DIR/bin/python\""
+create_wrapper a "$PYTHON_DIR/cek_semua_data_adsterra_8_day.py" "\"$PYTHON_EXECUTABLE\""
+create_wrapper b "$PYTHON_DIR/cek_semua_data_adsterra_30_day.py" "\"$PYTHON_EXECUTABLE\""
+create_wrapper c "$PYTHON_DIR/cek_semua_data_adsterra_3_bulan.py" "\"$PYTHON_EXECUTABLE\""
+create_wrapper d "$PYTHON_DIR/cek_semua_data_adsterra.py" "\"$PYTHON_EXECUTABLE\""
+create_wrapper z "$PYTHON_DIR/z.py" "\"$PYTHON_EXECUTABLE\""
 create_wrapper p "$TOOLS_DIR/p" bash
 create_wrapper push "$TOOLS_DIR/push" bash
 
