@@ -1,113 +1,77 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
+# Installer My Terminal Tools untuk Termux dan Ubuntu/Debian.
+set -euo pipefail
 
-# ==============================================================================
-# SCRIPT PENYIAPAN BIN TERMUX & PYTHON ENV (ISOLATED MODE)
-# Description: Mengunduh script Python dari GitHub ke folder khusus (mypython),
-#              membuat wrapper eksekusi (a, b, c, d, z) di folder bin,
-#              serta mengunduh tools Git (p, push) dari GitHub.
-# ==============================================================================
+BASE_URL="https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main"
 
-# ------------------------------------------------------------------------------
-# 1. KONFIGURASI DIREKTORI & URL REPOSITORY
-# ------------------------------------------------------------------------------
-BIN_DIR="$PREFIX/bin"
-PYTHON_DIR="$PREFIX/mypython"
-
-BASE_URL_PYTHON="https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/python"
-BASE_URL_SCRIPT="https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/script"
-
-# Konfigurasi Warna Terminal
-MERAH='\033[0;31m'
-HIJAU='\033[0;32m'
-BIRU='\033[0;36m'
-KUNING='\033[1;33m'
-NC='\033[0m' # No Color
-
-echo -e "${BIRU}[*] Memulai Setup Environment Terisolasi Termux...${NC}"
-
-# ------------------------------------------------------------------------------
-# 2. MEMBUAT DIREKTORI KHUSUS PYTHON
-# ------------------------------------------------------------------------------
-echo -e "\n${KUNING}[1/4] Menyiapkan direktori khusus Python ($PYTHON_DIR)...${NC}"
-if [ ! -d "$PYTHON_DIR" ]; then
-    mkdir -p "$PYTHON_DIR"
-    echo -e "${HIJAU} -> Direktori berhasil dibuat.${NC}"
+if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" == /data/data/com.termux/files/usr* ]]; then
+    PLATFORM="Termux"
+    BIN_DIR="$PREFIX/bin"
+    DATA_DIR="$PREFIX/mypython"
+    PYTHON_BIN="python"
+elif [[ -r /etc/os-release ]] && . /etc/os-release && [[ "${ID:-}" == "ubuntu" || " ${ID_LIKE:-} " == *" debian "* ]]; then
+    PLATFORM="Ubuntu/Debian"
+    BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
+    DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/my-terminal-tools"
+    PYTHON_BIN="python3"
 else
-    echo -e "${HIJAU} -> Direktori sudah ada, melanjutkan...${NC}"
+    echo "ERROR: Installer hanya mendukung Termux dan Ubuntu/Debian." >&2
+    exit 1
 fi
 
-# ------------------------------------------------------------------------------
-# 3. MENGUNDUH SCRIPT PYTHON DARI GITHUB KE /MYPYTHON
-# ------------------------------------------------------------------------------
-echo -e "\n${KUNING}[2/4] Mengunduh script Python Adsterra dari GitHub...${NC}"
+for command in curl "$PYTHON_BIN"; do
+    command -v "$command" >/dev/null 2>&1 || {
+        echo "ERROR: '$command' belum tersedia." >&2
+        [[ "$PLATFORM" == "Termux" ]] && echo "Jalankan: pkg install python curl" || echo "Jalankan: sudo apt install python3 python3-venv curl"
+        exit 1
+    }
+done
 
-download_python() {
-    FILE_NAME=$1
-    echo -e "${BIRU} -> Mengunduh: ${KUNING}$FILE_NAME${NC}"
-    curl -sL "$BASE_URL_PYTHON/$FILE_NAME" -o "$PYTHON_DIR/$FILE_NAME"
+PYTHON_DIR="$DATA_DIR/python"
+TOOLS_DIR="$DATA_DIR/script"
+VENV_DIR="$DATA_DIR/venv"
+BASH_BIN="$(command -v bash)"
+mkdir -p "$BIN_DIR" "$PYTHON_DIR" "$TOOLS_DIR"
+
+echo "[*] Menyiapkan virtual environment Python ($PLATFORM)..."
+[[ -x "$VENV_DIR/bin/python" ]] || "$PYTHON_BIN" -m venv "$VENV_DIR"
+"$VENV_DIR/bin/python" -m pip install --upgrade pip
+"$VENV_DIR/bin/python" -m pip install requests tabulate colorama
+
+download() {
+    local source="$1" destination="$2"
+    echo " -> $(basename "$destination")"
+    curl --fail --silent --show-error --location "$source" --output "$destination"
 }
 
-download_python "cek_semua_data_adsterra_8_day.py"
-download_python "cek_semua_data_adsterra_30_day.py"
-download_python "cek_semua_data_adsterra_3_bulan.py"
-download_python "cek_semua_data_adsterra.py"
-download_python "z.py"
+echo "[*] Mengunduh script Python..."
+for file in adsterra_api.py cek_semua_data_adsterra_8_day.py cek_semua_data_adsterra_30_day.py cek_semua_data_adsterra_3_bulan.py cek_semua_data_adsterra.py z.py; do
+    download "$BASE_URL/python/$file" "$PYTHON_DIR/$file"
+done
+echo "[*] Mengunduh script Git..."
+download "$BASE_URL/script/p" "$TOOLS_DIR/p"
+download "$BASE_URL/script/push" "$TOOLS_DIR/push"
+download "$BASE_URL/script/update-lastmod" "$TOOLS_DIR/update-lastmod"
 
-# ------------------------------------------------------------------------------
-# 4. MEMBUAT WRAPPER EXECUTABLE (a, b, c, d, z) DI /BIN
-# ------------------------------------------------------------------------------
-echo -e "\n${KUNING}[3/4] Membuat executable command di Termux bin...${NC}"
-
-# Fungsi untuk membuat wrapper yang bersih tanpa perintah 'cd'
 create_wrapper() {
-    CMD_NAME=$1
-    PY_FILE=$2
-    
-    echo -e "${BIRU} -> Menulis perintah: ${KUNING}$CMD_NAME${NC}"
-    cat << EOF > "$BIN_DIR/$CMD_NAME"
-#!/data/data/com.termux/files/usr/bin/bash
-# Auto-generated wrapper untuk $PY_FILE
-python3 "$PYTHON_DIR/$PY_FILE" "\$@"
+    local name="$1" target="$2" interpreter="$3"
+    cat > "$BIN_DIR/$name" <<EOF
+#!$BASH_BIN
+exec $interpreter "$target" "\$@"
 EOF
-    chmod +x "$BIN_DIR/$CMD_NAME"
+    chmod +x "$BIN_DIR/$name"
 }
 
-# Mapping perintah terminal ke file Python
-create_wrapper "a" "cek_semua_data_adsterra_8_day.py"
-create_wrapper "b" "cek_semua_data_adsterra_30_day.py"
-create_wrapper "c" "cek_semua_data_adsterra_3_bulan.py"
-create_wrapper "d" "cek_semua_data_adsterra.py"
-create_wrapper "z" "z.py"
+create_wrapper a "$PYTHON_DIR/cek_semua_data_adsterra_8_day.py" "\"$VENV_DIR/bin/python\""
+create_wrapper b "$PYTHON_DIR/cek_semua_data_adsterra_30_day.py" "\"$VENV_DIR/bin/python\""
+create_wrapper c "$PYTHON_DIR/cek_semua_data_adsterra_3_bulan.py" "\"$VENV_DIR/bin/python\""
+create_wrapper d "$PYTHON_DIR/cek_semua_data_adsterra.py" "\"$VENV_DIR/bin/python\""
+create_wrapper z "$PYTHON_DIR/z.py" "\"$VENV_DIR/bin/python\""
+create_wrapper p "$TOOLS_DIR/p" bash
+create_wrapper push "$TOOLS_DIR/push" bash
 
-# ------------------------------------------------------------------------------
-# 5. MENGUNDUH SCRIPT BASH (p & push) DARI GITHUB
-# ------------------------------------------------------------------------------
-echo -e "\n${KUNING}[4/4] Mengunduh bash script Git Automation...${NC}"
-
-echo -e "${BIRU} -> Mengunduh 'p'...${NC}"
-curl -sL "$BASE_URL_SCRIPT/p" -o "$BIN_DIR/p"
-chmod +x "$BIN_DIR/p"
-
-echo -e "${BIRU} -> Mengunduh 'push'...${NC}"
-curl -sL "$BASE_URL_SCRIPT/push" -o "$BIN_DIR/push"
-chmod +x "$BIN_DIR/push"
-
-echo -e "${HIJAU} -> Selesai. Semua file bash siap digunakan.${NC}"
-
-# ------------------------------------------------------------------------------
-# 6. PENYELESAIAN
-# ------------------------------------------------------------------------------
-echo -e "\n=================================================="
-echo -e "${HIJAU}✔ PROSES INSTALASI SELESAI DENGAN SEMPURNA!${NC}"
-echo -e "=================================================="
-echo -e "${BIRU}Arsitektur sistem saat ini:${NC}"
-echo -e " - File Python Asli  : ${KUNING}$PYTHON_DIR${NC}"
-echo -e " - Command Eksekusi  : ${KUNING}$BIN_DIR${NC}"
-echo -e "\nAnda bisa langsung mengetik perintah berikut di mana saja:"
-echo -e " - ${HIJAU}a${NC}    : Laporan 8 Hari"
-echo -e " - ${HIJAU}b${NC}    : Laporan 30 Hari"
-echo -e " - ${HIJAU}c${NC}    : Laporan 3 Bulan (90 Hari)"
-echo -e " - ${HIJAU}d${NC}    : Laporan Seluruh Data (All-Time)"
-echo -e " - ${HIJAU}z${NC}    : Laporan 15 Harian (Half-Month)"
-echo -e " - ${HIJAU}p${NC}    : Git Auto Pull, Add, Commit & Push"
-echo -e " - ${HIJAU}push${NC} : Smart Update Date (.md) & Git Push"
+echo "Selesai. Perintah tersedia: a, b, c, d, z, p, push"
+echo "Command directory: $BIN_DIR"
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    echo "Tambahkan ke PATH: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.bashrc"
+fi

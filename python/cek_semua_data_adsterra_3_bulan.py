@@ -6,13 +6,13 @@
 Script: Adsterra 90 Days + Monthly Meta (With Daily Average)
 Author: Wahyu Kurniawan
 Date: 2026-02-13
-Description: 
+Description:
     Menampilkan data harian 90 hari terakhir DAN ringkasan per bulan.
-    
+
     [FITUR BARU v4.1]
     - Rata-rata Harian Per Bulan: Menghitung (Total Revenue / Jumlah Hari).
       Contoh: Jika Februari dapat $150 dalam 10 hari, rata-ratanya $15/hari.
-    
+
     [FITUR STANDAR]
     - Meta Bulanan: Total Impress, Avg CPM, Total Revenue.
     - Bahasa Indonesia untuk nama bulan.
@@ -27,12 +27,13 @@ import json
 import requests
 from datetime import datetime, timedelta
 import time
+from adsterra_api import get_cached_api_key, get_with_token_refresh
 
 # Cek Library
 try:
     from tabulate import tabulate
     from colorama import init, Fore, Style, Back
-    init(autoreset=True) 
+    init(autoreset=True)
 except ImportError:
     print("Error: Library kurang.")
     print("Run: pip install tabulate colorama requests")
@@ -43,12 +44,12 @@ except ImportError:
 # ==============================================================================
 
 class Config:
-    API_KEY = "62353c425ac1369b6a358b0e44b79377"
+    API_KEY = get_cached_api_key("62353c425ac1369b6a358b0e44b79377")
     BASE_URL = "https://api3.adsterratools.com/publisher/stats.json"
     USER_AGENT = "WahyuBot/4.1 (MonthlyAvgDaily)"
-    
+
     # 90 Hari (3 Bulan)
-    DAYS_LOOKBACK = 90  
+    DAYS_LOOKBACK = 90
 
 # ==============================================================================
 # 2. CLIENT API
@@ -71,17 +72,17 @@ class AdsterraClient:
         params = {
             "start_date": start_date,
             "finish_date": finish_date,
-            "group_by": "date" 
+            "group_by": "date"
         }
 
         print(f"{Fore.CYAN}[SYSTEM] Mengambil data 90 hari terakhir...")
         print(f"{Fore.CYAN}[SYSTEM] Periode: {Fore.YELLOW}{start_date}{Fore.CYAN} s/d {Fore.YELLOW}{finish_date}")
-        
+
         try:
             start_time = time.time()
-            resp = self.session.get(Config.BASE_URL, params=params, timeout=45)
+            resp = get_with_token_refresh(self.session, Config.BASE_URL, params=params, timeout=45)
             duration = time.time() - start_time
-            
+
             print(f"{Fore.GREEN}[SUCCESS] Data diterima ({duration:.2f} detik).")
             if resp.status_code == 200:
                 return resp.json()
@@ -123,12 +124,12 @@ def show_report(data):
 
     items = data["items"]
     items = sorted(items, key=lambda x: x.get('date', '0000-00-00'))
-    
+
     daily_rows = []
-    
+
     # Dictionary Akumulasi: {'2026-02': {'imp': 0, 'rev': 0, 'days': 0}}
-    monthly_agg = {} 
-    
+    monthly_agg = {}
+
     print(f"\n{Fore.WHITE}Memproses statistik...\n")
 
     for item in items:
@@ -143,7 +144,7 @@ def show_report(data):
         if rev > 12.0: rev_str = f"{Fore.GREEN}{Style.BRIGHT}{rev_str}{Style.RESET_ALL}"
         elif rev > 0: rev_str = f"{Fore.GREEN}{rev_str}{Style.RESET_ALL}"
         else: rev_str = f"{Fore.LIGHTBLACK_EX}{rev_str}{Style.RESET_ALL}"
-        
+
         cpm_str = format_usd(cpm)
         if cpm > 0.8: cpm_str = f"{Fore.YELLOW}{cpm_str}{Style.RESET_ALL}"
 
@@ -151,10 +152,10 @@ def show_report(data):
 
         # 2. LOGIKA META BULANAN
         month_key = date[:7] # Ambil YYYY-MM
-        
+
         if month_key not in monthly_agg:
             monthly_agg[month_key] = {'imp': 0, 'rev': 0, 'days': 0}
-            
+
         monthly_agg[month_key]['imp'] += imp
         monthly_agg[month_key]['rev'] += rev
         monthly_agg[month_key]['days'] += 1 # Tambah 1 hari setiap kali data ditemukan
@@ -168,35 +169,35 @@ def show_report(data):
     print("\n" + "="*60)
     print(f"{Back.MAGENTA}{Fore.WHITE}  META DATA: PERFORMA BULANAN & RATA-RATA HARIAN  {Style.RESET_ALL}")
     print("="*60)
-    
+
     monthly_rows = []
     sorted_months = sorted(monthly_agg.keys(), reverse=True)
-    
+
     grand_total_rev = 0
     grand_total_imp = 0
 
     for m_key in sorted_months:
         data_bulan = monthly_agg[m_key]
-        
+
         t_imp = data_bulan['imp']
         t_rev = data_bulan['rev']
         t_days = data_bulan['days'] # Jumlah hari aktif di bulan itu
-        
+
         # Hitung Real CPM
         real_avg_cpm = (t_rev / t_imp * 1000) if t_imp > 0 else 0
-        
+
         # Hitung Rata-rata Revenue Per Hari (Fitur Baru)
         avg_daily_rev = (t_rev / t_days) if t_days > 0 else 0
-        
+
         # Formatting Tampilan
         nama_bulan = get_indo_month(m_key)
-        
+
         rev_disp = f"{Fore.GREEN}{Style.BRIGHT}{format_usd(t_rev)}{Style.RESET_ALL}"
         cpm_disp = f"{Fore.YELLOW}{format_usd(real_avg_cpm)}{Style.RESET_ALL}"
-        
+
         # Kolom Baru: Rata-rata Harian
         avg_daily_disp = format_usd(avg_daily_rev)
-        
+
         monthly_rows.append([
             nama_bulan,
             t_days, # Jumlah Hari
@@ -205,14 +206,14 @@ def show_report(data):
             avg_daily_disp, # Kolom Baru
             rev_disp
         ])
-        
+
         grand_total_rev += t_rev
         grand_total_imp += t_imp
 
     # Header Tabel Bulanan
     headers_monthly = ["BULAN", "HARI", "TOT IMPRESS", "AVG CPM", "RATA2 / HARI", "TOT REVENUE"]
     print(tabulate(monthly_rows, headers=headers_monthly, tablefmt="fancy_grid", stralign="right"))
-    
+
     print("\n" + f"{Fore.WHITE}TOTAL AKUMULASI (90 HARI): {Fore.GREEN}{Style.BRIGHT}{format_usd(grand_total_rev)}{Style.RESET_ALL}")
     print("-" * 60 + "\n")
 
@@ -223,10 +224,10 @@ def show_report(data):
 if __name__ == "__main__":
     print(f"\n{Fore.MAGENTA}{Style.BRIGHT}ADSTERRA ANALYTICS PRO (v4.1){Style.RESET_ALL}")
     print("-" * 35)
-    
+
     client = AdsterraClient(Config.API_KEY)
     res = client.get_stats()
-    
+
     if res:
         show_report(res)
-        
+

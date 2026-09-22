@@ -8,16 +8,40 @@ Repositori ini dibagi menjadi dua fungsionalitas utama yang terintegrasi langsun
 1. *Git & Content Automation*: Alat cerdas untuk melakukan pembaruan *timestamp* pada file *Markdown* (`.md`) yang baru saja dimodifikasi dan melakukan proses *push* ke repositori secara mulus.
 2. *Adsterra Revenue Trackers*: Rangkaian pelacak pendapatan Adsterra yang menarik data langsung dari server, memprosesnya, dan menampilkannya dalam format tabel CLI yang bersih, rapi, dan dilengkapi indikator warna performa.
 
-##  Cara Instalasi Terpadu (One-Click Install)
+Command `p` dan `push` memperbarui field `lastmod:` pada front matter Markdown yang baru dimodifikasi. Jika file lama hanya memiliki `date:`, field tersebut otomatis dikonversi menjadi `lastmod:`.
 
-Untuk menginstal seluruh *tools* ini ke dalam perangkat Anda, cukup salin dan jalankan perintah tunggal di bawah ini pada terminal Termux Anda.
+## Cara Instalasi Terpadu (One-Click Install)
+
+Installer mendukung **Termux** dan **Ubuntu/Debian**. Perintah pelacak Adsterra memakai virtual environment Python terisolasi, sehingga tidak mengubah paket Python global.
 
 *Script installer* ini akan secara otomatis:
-- Melakukan pembaruan sistem dasar Termux.
-- Menginstal dependensi inti (**Python**, **Hugo**, **Git**, **Golang**).
-- Memasang pustaka Python yang dibutuhkan (`requests`, `tabulate`, `colorama`).
-- Membangun lingkungan eksekusi Python yang **terisolasi** di dalam sistem.
+- Mengunduh script Python dan Git Automation.
+- Memasang pustaka Python yang dibutuhkan (`requests`, `tabulate`, `colorama`) ke virtual environment terisolasi.
+- Membuat command `a`, `b`, `c`, `d`, `z`, `p`, dan `push`.
+
+### Termux
 
 ```bash
-pkg update -y && pkg install curl wget -y && curl -sL https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/start.sh -o start.sh && bash start.sh
+pkg update -y && pkg install python curl git -y
+curl -fsSL https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/start.sh | bash
 ```
+
+### Ubuntu/Debian
+
+Jalankan instalasi sebagai user biasa (bukan `sudo`):
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-venv python3-pip curl git
+curl -fsSL https://raw.githubusercontent.com/wahyu6070/my-terminal-tools/main/start.sh | bash
+```
+
+Command Ubuntu dipasang di `~/.local/bin`. Bila belum tersedia di `PATH`:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Pemulihan API Otomatis
+
+Jika Adsterra menolak API key (HTTP 401/403 atau pesan autentikasi), script mengambil key terbaru dari `https://winlator.me/adstera.txt`, menyimpannya lokal dengan permission khusus pemilik, lalu mengulangi request satu kali. Koneksi atau format sumber yang gagal tidak akan menimpa key lama.

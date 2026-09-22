@@ -7,7 +7,7 @@ Script: Adsterra Smart JSON Exporter (Clean Data + Rich Meta)
 Location: src/adsterra_export_json.py
 Author: Wahyu Kurniawan
 Date: 2026-02-13
-Description: 
+Description:
     Mengekspor data statistik Adsterra dengan struktur JSON yang sangat spesifik:
     1. 'meta': Berisi rangkuman detail, statistik agregat, dan rekor performa.
     2. 'daily_stats': List harian yang BERSIH (hanya Impression, CPM, Revenue).
@@ -28,6 +28,7 @@ import requests
 import os
 import time
 from datetime import datetime
+from adsterra_api import get_cached_api_key, get_with_token_refresh
 
 # Pewarnaan Terminal
 class Col:
@@ -43,7 +44,7 @@ class Col:
 # ==============================================================================
 
 class Config:
-    API_KEY = "62353c425ac1369b6a358b0e44b79377"
+    API_KEY = get_cached_api_key("62353c425ac1369b6a358b0e44b79377")
     BASE_URL = "https://api3.adsterratools.com/publisher/stats.json"
     START_DATE = "2022-10-01" # Sejak Awal
     OUTPUT_DIR = "output_json"
@@ -55,7 +56,7 @@ class Config:
 def get_stats_from_api():
     """Mengambil raw data dari API"""
     end_date = datetime.now().strftime('%Y-%m-%d')
-    
+
     print(f"\n{Col.BOLD}=== EKSPOR DATA ADSTERRA (CLEAN MODE) ==={Col.RESET}")
     print(f"{Col.CYAN}[API] Mengambil data dari {Config.START_DATE} s/d {end_date}...{Col.RESET}")
 
@@ -72,12 +73,12 @@ def get_stats_from_api():
     }
 
     try:
-        resp = session.get(Config.BASE_URL, params=params, timeout=60)
+        resp = get_with_token_refresh(session, Config.BASE_URL, params=params, timeout=60)
         if resp.status_code == 200:
             data = resp.json()
             if "items" in data:
                 return data["items"]
-        
+
         print(f"{Col.RED}[ERROR] Gagal mengambil data. HTTP: {resp.status_code}{Col.RESET}")
         return None
     except Exception as e:
@@ -97,7 +98,7 @@ def process_smart_json(raw_items):
     total_rev = 0.0
     total_imp = 0
     total_cpm_accum = 0.0
-    
+
     # Variabel untuk mencari Hari Terbaik (Best Performance)
     best_day = {"date": None, "revenue": -1.0}
 
@@ -116,7 +117,7 @@ def process_smart_json(raw_items):
         total_rev += rev
         total_imp += imp
         total_cpm_accum += cpm
-        
+
         # Cek Rekor (Best Day)
         if rev > best_day["revenue"]:
             best_day = {"date": date, "revenue": rev, "cpm": cpm}
@@ -158,7 +159,7 @@ def process_smart_json(raw_items):
                 "currency": "USD"
             }
         },
-        
+
         # --- DATA: SANGAT BERSIH ---
         "daily_stats": clean_daily_data
     }
@@ -168,14 +169,14 @@ def process_smart_json(raw_items):
 def save_file(data):
     if not os.path.exists(Config.OUTPUT_DIR):
         os.makedirs(Config.OUTPUT_DIR)
-        
+
     filename = f"adsterra_clean_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     filepath = os.path.join(Config.OUTPUT_DIR, filename)
 
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2) # Indent 2 agar hemat space tapi terbaca
-            
+
         print("-" * 50)
         print(f"{Col.GREEN}✅ SUKSES! File JSON tersimpan.{Col.RESET}")
         print(f"📂 Path : {Col.BOLD}{filepath}{Col.RESET}")
@@ -194,4 +195,4 @@ if __name__ == "__main__":
     if raw:
         clean_json = process_smart_json(raw)
         save_file(clean_json)
-        
+

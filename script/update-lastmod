@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+# Perbarui lastmod pada Markdown yang baru dimodifikasi.
+TARGET_DIR="${1:-./content/game}"
+TIME_LIMIT_SEC="${2:-7200}"
+
+if [[ ! -d "$TARGET_DIR" ]]; then
+    echo "[INFO] Folder $TARGET_DIR tidak ditemukan; pembaruan lastmod dilewati."
+    exit 0
+fi
+
+count_updated=0
+count_skipped=0
+count_error=0
+now=$(date +%s)
+
+echo "[*] Memperbarui front matter lastmod di $TARGET_DIR..."
+
+while IFS= read -r -d '' file; do
+    mtime=$(stat -c %Y "$file")
+    if (( now - mtime > TIME_LIMIT_SEC )); then
+        ((count_skipped++))
+        continue
+    fi
+
+    new_value=$(date -r "$file" "+%Y-%m-%dT%H:%M:%S+07:00")
+    field="lastmod"
+    line_data=$(grep -m 1 -E '^lastmod[[:space:]]*[:=]' "$file")
+
+    # File lama mungkin masih menggunakan date; konversikan key tersebut.
+    if [[ -z "$line_data" ]]; then
+        field="date"
+        line_data=$(grep -m 1 -E '^date[[:space:]]*[:=]' "$file")
+    fi
+
+    if [[ -z "$line_data" ]]; then
+        ((count_skipped++))
+        continue
+    fi
+
+    [[ "$line_data" == *":"* ]] && separator=":" || separator="="
+    old_value=$(printf '%s\n' "$line_data" | cut -d"$separator" -f2- | xargs)
+
+    if [[ "$field" == "lastmod" && "${new_value:0:16}" == "${old_value:0:16}" ]]; then
+        ((count_skipped++))
+        continue
+    fi
+
+    if sed -i "0,/^${field}[[:space:]]*[:=].*/s//lastmod${separator} ${new_value}/" "$file"; then
+        echo "[UPDATED] ${file#"$TARGET_DIR"/}: $field -> lastmod ($new_value)"
+        ((count_updated++))
+    else
+        echo "[ERROR] Gagal memperbarui $file" >&2
+        ((count_error++))
+    fi
+done < <(find "$TARGET_DIR" -type f -name '*.md' -print0)
+
+echo "[INFO] lastmod: $count_updated diperbarui, $count_skipped dilewati, $count_error gagal."
+(( count_error == 0 ))
