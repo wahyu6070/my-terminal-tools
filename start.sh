@@ -34,7 +34,28 @@ BASH_BIN="$(command -v bash)"
 mkdir -p "$BIN_DIR" "$PYTHON_DIR" "$TOOLS_DIR"
 
 echo "[*] Menyiapkan virtual environment Python ($PLATFORM)..."
-[[ -x "$VENV_DIR/bin/python" ]] || "$PYTHON_BIN" -m venv "$VENV_DIR"
+if [[ ! -x "$VENV_DIR/bin/python" ]] || ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+    if [[ -d "$VENV_DIR" ]]; then
+        echo " -> Environment lama tidak lengkap; membangun ulang..."
+        venv_args=(--clear "$VENV_DIR")
+    else
+        venv_args=("$VENV_DIR")
+    fi
+
+    if ! "$PYTHON_BIN" -m venv "${venv_args[@]}"; then
+        echo "ERROR: Gagal membuat virtual environment Python." >&2
+        [[ "$PLATFORM" == "Termux" ]] && echo "Jalankan: pkg reinstall python" || echo "Jalankan: sudo apt install --reinstall python3-venv"
+        exit 1
+    fi
+fi
+
+if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+    echo " -> pip belum tersedia; menjalankan ensurepip..."
+    "$VENV_DIR/bin/python" -m ensurepip --upgrade || {
+        echo "ERROR: pip gagal dipasang ke virtual environment." >&2
+        exit 1
+    }
+fi
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/python" -m pip install requests tabulate colorama
 
