@@ -83,66 +83,64 @@ class AdsterraClient:
 
     def get_stats(self):
         """
-        Mengambil statistik dari tanggal awal (2022) sampai hari ini.
+        Mengambil statistik dari tanggal awal sampai hari ini dalam beberapa
+        request karena API membatasi satu rentang maksimal 366 hari.
         """
+        first_date = datetime.strptime(Config.START_DATE_ALL_TIME, "%Y-%m-%d")
+        final_date = datetime.now()
+        chunk_start = first_date
+        chunk_number = 0
+        all_items = []
 
-        # 1. Menentukan Rentang Waktu
-        # Tanggal Akhir = Hari Ini
-        finish_date = datetime.now().strftime('%Y-%m-%d')
-
-        # Tanggal Awal = Konfigurasi Static (2022-10-01)
-        start_date = Config.START_DATE_ALL_TIME
-
-        # 2. Menyusun Parameter Request
-        # Note: 'group_by=date' penting agar data terpecah per hari
-        params = {
-            "start_date": start_date,
-            "finish_date": finish_date,
-            "group_by": "date"
-        }
-
-        # 3. Visualisasi Proses (Loading Indicator sederhana)
         print(f"{Fore.CYAN}[SYSTEM] Menginisialisasi koneksi ke Adsterra...")
-        print(f"{Fore.CYAN}[SYSTEM] Rentang Data: {Fore.YELLOW}{start_date}{Fore.CYAN} s/d {Fore.YELLOW}{finish_date}")
+        print(f"{Fore.CYAN}[SYSTEM] Rentang Data: {Fore.YELLOW}{first_date:%Y-%m-%d}{Fore.CYAN} s/d {Fore.YELLOW}{final_date:%Y-%m-%d}")
         print(f"{Fore.LIGHTBLACK_EX}[DEBUG] Endpoint: {Config.BASE_URL}")
 
-        start_time = time.time() # Timer untuk mengukur kecepatan request
+        while chunk_start.date() <= final_date.date():
+            # Selisih 365 hari berarti maksimal 366 tanggal inklusif.
+            chunk_end = min(chunk_start + timedelta(days=365), final_date)
+            chunk_number += 1
+            params = {
+                "start_date": chunk_start.strftime("%Y-%m-%d"),
+                "finish_date": chunk_end.strftime("%Y-%m-%d"),
+                "group_by": "date"
+            }
+            print(f"{Fore.CYAN}[FETCH {chunk_number}] {params['start_date']} s/d {params['finish_date']}")
+            request_started = time.time()
 
-        try:
-            # Mengirim GET Request
-            response = get_with_token_refresh(self.session, Config.BASE_URL, params=params, timeout=60)
+            try:
+                response = get_with_token_refresh(
+                    self.session, Config.BASE_URL, params=params, timeout=60
+                )
+            except requests.exceptions.RequestException as error:
+                print(f"{Fore.RED}[NETWORK] Gagal terhubung ke internet/server.")
+                print(f"{Fore.LIGHTBLACK_EX}Detail: {error}")
+                return None
 
-            # Menghitung durasi
-            duration = time.time() - start_time
-            print(f"{Fore.GREEN}[SUCCESS] Respon diterima dalam {duration:.2f} detik.")
-
-            # Parsing JSON
+            duration = time.time() - request_started
             if response.status_code == 200:
                 data = response.json()
-
-                # Cek logical error dari API
-                if "errors" in data and data["errors"]:
+                if data.get("errors"):
                     print(f"{Fore.RED}[API ERROR] {data['errors']}")
                     return None
-
-                return data
-
-            # Error Handling HTTP Code
+                all_items.extend(data.get("items", []))
+                print(f"{Fore.GREEN}[SUCCESS] Bagian {chunk_number} diterima dalam {duration:.2f} detik.")
             elif response.status_code == 422:
-                print(f"{Fore.YELLOW}[WARN] Validasi Gagal (422). Cek parameter tanggal.")
-            elif response.status_code == 401:
-                print(f"{Fore.RED}[AUTH] Token API Salah/Expired.")
+                print(f"{Fore.YELLOW}[WARN] Validasi gagal (422): {response.text}")
+                return None
+            elif response.status_code in (401, 403):
+                print(f"{Fore.RED}[AUTH] API key masih ditolak setelah pembaruan otomatis.")
+                return None
             elif response.status_code == 429:
                 print(f"{Fore.RED}[LIMIT] Terlalu banyak request. Tunggu sebentar.")
+                return None
             else:
                 print(f"{Fore.RED}[HTTP] Error Code: {response.status_code}")
+                return None
 
-            return None
+            chunk_start = chunk_end + timedelta(days=1)
 
-        except requests.exceptions.RequestException as e:
-            print(f"{Fore.RED}[NETWORK] Gagal terhubung ke internet/server.")
-            print(f"{Fore.LIGHTBLACK_EX}Detail: {str(e)}")
-            return None
+        return {"items": all_items, "itemCount": len(all_items)}
 
 # ==============================================================================
 # 3. MANAJEMEN TAMPILAN (FORMATTING & OUTPUT)
@@ -269,4 +267,3 @@ if __name__ == "__main__":
     # Tampilkan
     if json_result:
         display_clean_report(json_result)
-

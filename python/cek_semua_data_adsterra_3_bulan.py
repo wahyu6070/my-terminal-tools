@@ -3,11 +3,11 @@
 
 """
 --------------------------------------------------------------------------------
-Script: Adsterra 90 Days + Monthly Meta (With Daily Average)
+Script: Adsterra All-Months Summary
 Author: Wahyu Kurniawan
 Date: 2026-02-13
 Description:
-    Menampilkan data harian 90 hari terakhir DAN ringkasan per bulan.
+    Menampilkan ringkasan setiap bulan sejak awal data.
 
     [FITUR BARU v4.1]
     - Rata-rata Harian Per Bulan: Menghitung (Total Revenue / Jumlah Hari).
@@ -48,8 +48,7 @@ class Config:
     BASE_URL = "https://api3.adsterratools.com/publisher/stats.json"
     USER_AGENT = "WahyuBot/4.1 (MonthlyAvgDaily)"
 
-    # 90 Hari (3 Bulan)
-    DAYS_LOOKBACK = 90
+    START_DATE_ALL_TIME = "2022-10-01"
 
 # ==============================================================================
 # 2. CLIENT API
@@ -65,31 +64,49 @@ class AdsterraClient:
         })
 
     def get_stats(self):
-        today = datetime.now()
-        finish_date = today.strftime('%Y-%m-%d')
-        start_date = (today - timedelta(days=Config.DAYS_LOOKBACK)).strftime('%Y-%m-%d')
+        first_date = datetime.strptime(Config.START_DATE_ALL_TIME, "%Y-%m-%d")
+        final_date = datetime.now()
+        chunk_start = first_date
+        chunk_number = 0
+        all_items = []
 
-        params = {
-            "start_date": start_date,
-            "finish_date": finish_date,
-            "group_by": "date"
-        }
+        print(f"{Fore.CYAN}[SYSTEM] Mengambil seluruh data bulanan...")
+        print(f"{Fore.CYAN}[SYSTEM] Periode: {Fore.YELLOW}{first_date:%Y-%m-%d}{Fore.CYAN} s/d {Fore.YELLOW}{final_date:%Y-%m-%d}")
 
-        print(f"{Fore.CYAN}[SYSTEM] Mengambil data 90 hari terakhir...")
-        print(f"{Fore.CYAN}[SYSTEM] Periode: {Fore.YELLOW}{start_date}{Fore.CYAN} s/d {Fore.YELLOW}{finish_date}")
+        while chunk_start.date() <= final_date.date():
+            chunk_end = min(chunk_start + timedelta(days=365), final_date)
+            chunk_number += 1
+            params = {
+                "start_date": chunk_start.strftime("%Y-%m-%d"),
+                "finish_date": chunk_end.strftime("%Y-%m-%d"),
+                "group_by": "date"
+            }
+            print(f"{Fore.CYAN}[FETCH {chunk_number}] {params['start_date']} s/d {params['finish_date']}")
 
-        try:
-            start_time = time.time()
-            resp = get_with_token_refresh(self.session, Config.BASE_URL, params=params, timeout=45)
-            duration = time.time() - start_time
+            try:
+                started = time.time()
+                response = get_with_token_refresh(
+                    self.session, Config.BASE_URL, params=params, timeout=60
+                )
+                duration = time.time() - started
+            except requests.exceptions.RequestException as error:
+                print(f"{Fore.RED}[CONN] Error: {error}")
+                return None
 
-            print(f"{Fore.GREEN}[SUCCESS] Data diterima ({duration:.2f} detik).")
-            if resp.status_code == 200:
-                return resp.json()
-            return None
-        except Exception as e:
-            print(f"{Fore.RED}[CONN] Error: {e}")
-            return None
+            if response.status_code != 200:
+                print(f"{Fore.RED}[HTTP] Error {response.status_code}: {response.text}")
+                return None
+
+            data = response.json()
+            if data.get("errors"):
+                print(f"{Fore.RED}[API ERROR] {data['errors']}")
+                return None
+
+            all_items.extend(data.get("items", []))
+            print(f"{Fore.GREEN}[SUCCESS] Bagian {chunk_number} diterima ({duration:.2f} detik).")
+            chunk_start = chunk_end + timedelta(days=1)
+
+        return {"items": all_items, "itemCount": len(all_items)}
 
 # ==============================================================================
 # 3. LOGIKA TAMPILAN & META BULANAN
@@ -125,8 +142,6 @@ def show_report(data):
     items = data["items"]
     items = sorted(items, key=lambda x: x.get('date', '0000-00-00'))
 
-    daily_rows = []
-
     # Dictionary Akumulasi: {'2026-02': {'imp': 0, 'rev': 0, 'days': 0}}
     monthly_agg = {}
 
@@ -136,21 +151,9 @@ def show_report(data):
         # Data Mentah
         date = item.get("date", "-")
         imp = int(item.get("impression", 0))
-        cpm = float(item.get("cpm", 0.0))
         rev = float(item.get("revenue", 0.0))
 
-        # 1. TABEL HARIAN
-        rev_str = format_usd(rev)
-        if rev > 12.0: rev_str = f"{Fore.GREEN}{Style.BRIGHT}{rev_str}{Style.RESET_ALL}"
-        elif rev > 0: rev_str = f"{Fore.GREEN}{rev_str}{Style.RESET_ALL}"
-        else: rev_str = f"{Fore.LIGHTBLACK_EX}{rev_str}{Style.RESET_ALL}"
-
-        cpm_str = format_usd(cpm)
-        if cpm > 0.8: cpm_str = f"{Fore.YELLOW}{cpm_str}{Style.RESET_ALL}"
-
-        daily_rows.append([date, format_num(imp), cpm_str, rev_str])
-
-        # 2. LOGIKA META BULANAN
+        # LOGIKA META BULANAN
         month_key = date[:7] # Ambil YYYY-MM
 
         if month_key not in monthly_agg:
@@ -160,12 +163,7 @@ def show_report(data):
         monthly_agg[month_key]['rev'] += rev
         monthly_agg[month_key]['days'] += 1 # Tambah 1 hari setiap kali data ditemukan
 
-    # --- RENDER TABEL HARIAN ---
-    print(f"{Fore.CYAN}=== RINCIAN HARIAN (90 HARI TERAKHIR) ==={Style.RESET_ALL}")
-    headers_daily = ["TANGGAL", "IMPRESSIONS", "CPM", "REVENUE"]
-    print(tabulate(daily_rows, headers=headers_daily, tablefmt="simple_grid", stralign="right"))
-
-    # --- RENDER TABEL META BULANAN (UPDATE FITUR BARU) ---
+    # --- RENDER TABEL META BULANAN ---
     print("\n" + "="*60)
     print(f"{Back.MAGENTA}{Fore.WHITE}  META DATA: PERFORMA BULANAN & RATA-RATA HARIAN  {Style.RESET_ALL}")
     print("="*60)
@@ -214,7 +212,7 @@ def show_report(data):
     headers_monthly = ["BULAN", "HARI", "TOT IMPRESS", "AVG CPM", "RATA2 / HARI", "TOT REVENUE"]
     print(tabulate(monthly_rows, headers=headers_monthly, tablefmt="fancy_grid", stralign="right"))
 
-    print("\n" + f"{Fore.WHITE}TOTAL AKUMULASI (90 HARI): {Fore.GREEN}{Style.BRIGHT}{format_usd(grand_total_rev)}{Style.RESET_ALL}")
+    print("\n" + f"{Fore.WHITE}TOTAL AKUMULASI (SEMUA BULAN): {Fore.GREEN}{Style.BRIGHT}{format_usd(grand_total_rev)}{Style.RESET_ALL}")
     print("-" * 60 + "\n")
 
 # ==============================================================================
@@ -222,7 +220,7 @@ def show_report(data):
 # ==============================================================================
 
 if __name__ == "__main__":
-    print(f"\n{Fore.MAGENTA}{Style.BRIGHT}ADSTERRA ANALYTICS PRO (v4.1){Style.RESET_ALL}")
+    print(f"\n{Fore.MAGENTA}{Style.BRIGHT}ADSTERRA ALL-MONTHS ANALYTICS (v5.0){Style.RESET_ALL}")
     print("-" * 35)
 
     client = AdsterraClient(Config.API_KEY)
@@ -230,4 +228,3 @@ if __name__ == "__main__":
 
     if res:
         show_report(res)
-

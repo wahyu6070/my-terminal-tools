@@ -10,6 +10,8 @@ Repositori ini dibagi menjadi dua fungsionalitas utama yang terintegrasi langsun
 
 Command `p` dan `push` memperbarui field `lastmod:` pada front matter Markdown yang baru dimodifikasi. Jika file lama hanya memiliki `date:`, field tersebut otomatis dikonversi menjadi `lastmod:`.
 
+Command `c` menampilkan ringkasan seluruh bulan sejak Oktober 2022 sampai bulan berjalan. Command `d` menampilkan rincian harian untuk seluruh periode; keduanya otomatis membagi request agar mematuhi batas maksimal 366 hari dari API.
+
 ## Cara Instalasi Terpadu (One-Click Install)
 
 Installer mendukung **Termux** dan **Ubuntu/Debian** serta menjalankan pelacak Adsterra dengan Python global sistem.
