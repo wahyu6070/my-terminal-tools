@@ -169,7 +169,8 @@ def show_report(data):
     print("="*60)
 
     monthly_rows = []
-    sorted_months = sorted(monthly_agg.keys(), reverse=True)
+    # Urutkan kronologis: bulan paling lama di atas, paling baru di bawah.
+    sorted_months = sorted(monthly_agg.keys())
 
     grand_total_rev = 0
     grand_total_imp = 0
