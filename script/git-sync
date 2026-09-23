@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+# Perbarui lastmod, commit, rebase ke remote, lalu push tanpa meninggalkan konflik.
+# Pemakaian: git-sync "<pesan commit>" [folder konten] [batas detik]
+set -u
+
+COMMIT_MSG="${1:-p}"
+TARGET_DIR="${2:-./content/game}"
+TIME_LIMIT_SEC="${3:-21600}"
+MAX_TRY=3
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+W='\033[0m'
+R='\033[1;31m'
+G='\033[1;32m'
+Y='\033[1;33m'
+B='\033[1;34m'
+
+die() {
+    echo -e "${R}[ERROR] $*${W}" >&2
+    exit 1
+}
+
+# Benar bila masih ada merge/rebase/cherry-pick yang belum selesai atau file konflik.
+git_busy() {
+    local state
+    for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+        [[ -e "$(git rev-parse --git-path "$state")" ]] && return 0
+    done
+    [[ -n "$(git diff --name-only --diff-filter=U)" ]]
+}
+
+# Periksa kondisi repository sebelum menyentuh file apa pun.
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "Direktori ini bukan repository Git."
+if git_busy; then
+    die "Masih ada merge/rebase atau konflik yang belum selesai. Periksa dengan: git status"
+fi
+branch=$(git symbolic-ref --quiet --short HEAD) || die "HEAD tidak berada di branch (detached HEAD)."
+git rev-parse --verify -q '@{u}' >/dev/null || die "Branch $branch belum punya upstream. Jalankan: git push -u origin $branch"
+
+bash "$SCRIPT_DIR/update-lastmod" "$TARGET_DIR" "$TIME_LIMIT_SEC" || die "Sebagian file gagal diperbarui."
+
+git add -A || die "Git add gagal."
+if git diff --cached --quiet; then
+    echo -e "${G}[INFO] Tidak ada perubahan lokal untuk di-commit.${W}"
+else
+    echo -e "${Y}[*] Commit: '$COMMIT_MSG'${W}"
+    git commit -q -m "$COMMIT_MSG" || die "Git commit gagal."
+fi
+
+for (( try = 1; try <= MAX_TRY; try++ )); do
+    echo -e "${B}[*] Menarik perubahan remote (rebase)...${W}"
+    if ! git pull --rebase --no-autostash; then
+        if git_busy; then
+            conflicts=$(git diff --name-only --diff-filter=U)
+            git rebase --abort >/dev/null 2>&1 || git merge --abort >/dev/null 2>&1
+            echo -e "${R}[KONFLIK] File yang bentrok dengan remote:${W}\n$conflicts" >&2
+            die "Pull dibatalkan otomatis; commit lokal tetap aman dan remote tidak diubah. Selesaikan manual: git pull --rebase"
+        fi
+        die "Git pull gagal."
+    fi
+
+    if [[ -z "$(git rev-list '@{u}..HEAD')" ]]; then
+        echo -e "${G}[INFO] Sudah sinkron dengan remote; tidak ada yang perlu di-push.${W}"
+        exit 0
+    fi
+
+    echo -e "${B}[*] Mengunggah perubahan...${W}"
+    if git push; then
+        echo -e "${G}[SUKSES] Sinkronisasi selesai.${W}"
+        exit 0
+    fi
+    echo -e "${Y}[WARN] Push ditolak (remote berubah); mencoba lagi ($try/$MAX_TRY)...${W}"
+done
+
+die "Push gagal setelah $MAX_TRY percobaan."

@@ -70,6 +70,7 @@ echo "[*] Mengunduh script Git..."
 download "$BASE_URL/script/p" "$TOOLS_DIR/p"
 download "$BASE_URL/script/push" "$TOOLS_DIR/push"
 download "$BASE_URL/script/update-lastmod" "$TOOLS_DIR/update-lastmod"
+download "$BASE_URL/script/git-sync" "$TOOLS_DIR/git-sync"
 
 create_wrapper() {
     local name="$1" target="$2" interpreter="$3"

@@ -1,22 +1,6 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 
-# Hentikan proses jika ada error
-echo -e "\033[0;32m[*] Git Pull (Cek update dulu)...\033[0m"
-git pull
-
+# Perbarui lastmod lalu sinkronkan dengan remote secara aman.
+# Argumen pertama menjadi pesan commit; default-nya "p".
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-bash "$SCRIPT_DIR/update-lastmod" "./content/game" "7200"
-
-echo -e "\033[0;32m[*] Git Add All...\033[0m"
-git add .
-
-# Menggunakan argumen pertama sebagai pesan commit.
-# Jika kosong, default-nya adalah "p"
-PESAN="${1:-p}"
-echo -e "\033[0;32m[*] Git Commit dengan pesan: '$PESAN'...\033[0m"
-git commit -m "$PESAN"
-
-echo -e "\033[0;32m[*] Git Push ke Remote...\033[0m"
-git push
-
-echo -e "\033[0;32m[*] Selesai!\033[0m"
+exec bash "$SCRIPT_DIR/git-sync" "${1:-p}" "./content/game" "21600"
