@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 # Perbarui lastmod pada Markdown yang baru dimodifikasi.
+# Field date tidak pernah diubah; lastmod diperbarui bila ada, atau ditambahkan bila belum ada.
 TARGET_DIR="${1:-./content/game}"
 TIME_LIMIT_SEC="${2:-7200}"
 
@@ -10,9 +11,59 @@ if [[ ! -d "$TARGET_DIR" ]]; then
 fi
 
 count_updated=0
+count_added=0
 count_skipped=0
 count_error=0
 now=$(date +%s)
+
+# Exit code: 0 = lastmod diperbarui, 2 = lastmod ditambahkan,
+# 3 = lastmod sudah sesuai, 4 = tidak ada front matter yang valid.
+# shellcheck disable=SC2016
+AWK_LASTMOD='
+function trim(s) {
+    gsub(/^[ \t"'\'']+/, "", s)
+    gsub(/[ \t"'\'']+$/, "", s)
+    return s
+}
+NR == 1 {
+    l = $0; cr = ""
+    if (sub(/\r$/, "", l)) cr = "\r"
+    if (l == "---") { delim = "---"; line_new = "lastmod: " val }
+    else if (l == "+++") { delim = "+++"; line_new = "lastmod = " val }
+    else exit 4
+    in_fm = 1; print; next
+}
+in_fm {
+    l = $0; sub(/\r$/, "", l)
+    if (l == delim) {
+        for (i = 1; i <= n; i++) {
+            print buf[i]
+            if (!found && i == date_idx) print line_new cr
+        }
+        if (!found && !date_idx) print line_new cr
+        in_fm = 0; closed = 1
+        print; next
+    }
+    buf[++n] = $0
+    if (!found && l ~ /^lastmod[ \t]*[:=]/) {
+        found = 1
+        rest = l; sub(/^lastmod[ \t]*/, "", rest)
+        sep = substr(rest, 1, 1)
+        old = trim(substr(rest, 2))
+        if (substr(old, 1, 16) == substr(val, 1, 16)) unchanged = 1
+        else buf[n] = "lastmod" (sep == ":" ? ": " : " = ") val cr
+    } else if (!date_idx && l ~ /^date[ \t]*[:=]/) {
+        date_idx = n
+    }
+    next
+}
+{ print }
+END {
+    if (!closed) exit 4
+    if (unchanged) exit 3
+    if (!found) exit 2
+}
+'
 
 echo "[*] Memperbarui front matter lastmod di $TARGET_DIR..."
 
@@ -24,36 +75,41 @@ while IFS= read -r -d '' file; do
     fi
 
     new_value=$(date -r "$file" "+%Y-%m-%dT%H:%M:%S+07:00")
-    field="lastmod"
-    line_data=$(grep -m 1 -E '^lastmod[[:space:]]*[:=]' "$file")
-
-    # File lama mungkin masih menggunakan date; konversikan key tersebut.
-    if [[ -z "$line_data" ]]; then
-        field="date"
-        line_data=$(grep -m 1 -E '^date[[:space:]]*[:=]' "$file")
-    fi
-
-    if [[ -z "$line_data" ]]; then
-        ((count_skipped++))
-        continue
-    fi
-
-    [[ "$line_data" == *":"* ]] && separator=":" || separator="="
-    old_value=$(printf '%s\n' "$line_data" | cut -d"$separator" -f2- | xargs)
-
-    if [[ "$field" == "lastmod" && "${new_value:0:16}" == "${old_value:0:16}" ]]; then
-        ((count_skipped++))
-        continue
-    fi
-
-    if sed -i "0,/^${field}[[:space:]]*[:=].*/s//lastmod${separator} ${new_value}/" "$file"; then
-        echo "[UPDATED] ${file#"$TARGET_DIR"/}: $field -> lastmod ($new_value)"
-        ((count_updated++))
-    else
-        echo "[ERROR] Gagal memperbarui $file" >&2
+    if ! tmp=$(mktemp); then
+        echo "[ERROR] Gagal membuat file sementara untuk $file" >&2
         ((count_error++))
+        continue
     fi
+
+    awk -v val="$new_value" "$AWK_LASTMOD" "$file" > "$tmp"
+    status=$?
+
+    case $status in
+        0|2)
+            # Tulis ulang isi file agar permission file asli tetap terjaga.
+            if cat "$tmp" > "$file"; then
+                if (( status == 0 )); then
+                    echo "[UPDATED] ${file#"$TARGET_DIR"/}: lastmod -> $new_value"
+                    ((count_updated++))
+                else
+                    echo "[ADDED] ${file#"$TARGET_DIR"/}: lastmod -> $new_value"
+                    ((count_added++))
+                fi
+            else
+                echo "[ERROR] Gagal memperbarui $file" >&2
+                ((count_error++))
+            fi
+            ;;
+        3|4)
+            ((count_skipped++))
+            ;;
+        *)
+            echo "[ERROR] Gagal memproses $file" >&2
+            ((count_error++))
+            ;;
+    esac
+    rm -f "$tmp"
 done < <(find "$TARGET_DIR" -type f -name '*.md' -print0)
 
-echo "[INFO] lastmod: $count_updated diperbarui, $count_skipped dilewati, $count_error gagal."
+echo "[INFO] lastmod: $count_updated diperbarui, $count_added ditambahkan, $count_skipped dilewati, $count_error gagal."
 (( count_error == 0 ))

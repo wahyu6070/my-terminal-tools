@@ -8,7 +8,7 @@ Repositori ini dibagi menjadi dua fungsionalitas utama yang terintegrasi langsun
 1. *Git & Content Automation*: Alat cerdas untuk melakukan pembaruan *timestamp* pada file *Markdown* (`.md`) yang baru saja dimodifikasi dan melakukan proses *push* ke repositori secara mulus.
 2. *Adsterra Revenue Trackers*: Rangkaian pelacak pendapatan Adsterra yang menarik data langsung dari server, memprosesnya, dan menampilkannya dalam format tabel CLI yang bersih, rapi, dan dilengkapi indikator warna performa.
 
-Command `p` dan `push` memperbarui field `lastmod:` pada front matter Markdown yang baru dimodifikasi. Jika file lama hanya memiliki `date:`, field tersebut otomatis dikonversi menjadi `lastmod:`.
+Command `p` dan `push` memperbarui field `lastmod` pada front matter (YAML `---` atau TOML `+++`) Markdown yang baru dimodifikasi. Field `date` tidak pernah diubah: jika `lastmod` sudah ada nilainya diperbarui, jika belum ada `lastmod` ditambahkan tepat setelah `date` (atau di akhir front matter bila tidak ada `date`).
 
 Command `c` menampilkan ringkasan seluruh bulan sejak Oktober 2022 sampai bulan berjalan. Command `d` menampilkan rincian harian untuk seluruh periode; keduanya otomatis membagi request agar mematuhi batas maksimal 366 hari dari API.
 
