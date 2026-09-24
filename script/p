@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Perbarui lastmod lalu sinkronkan dengan remote secara aman.
+# Commit perubahan, pull, lalu push secara aman tanpa memperbarui date/lastmod.
 # Argumen pertama menjadi pesan commit; default-nya "p".
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec bash "$SCRIPT_DIR/git-sync" "${1:-p}" "./content/game" "21600"
+exec bash "$SCRIPT_DIR/git-sync" "${1:-p}" ""

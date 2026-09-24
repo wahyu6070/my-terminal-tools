@@ -2,10 +2,11 @@
 
 # Perbarui lastmod, commit, rebase ke remote, lalu push tanpa meninggalkan konflik.
 # Pemakaian: git-sync "<pesan commit>" [folder konten] [batas detik]
+# Folder konten berupa string kosong berarti pembaruan lastmod dilewati.
 set -u
 
 COMMIT_MSG="${1:-p}"
-TARGET_DIR="${2:-./content/game}"
+TARGET_DIR="${2-./content/game}"
 TIME_LIMIT_SEC="${3:-21600}"
 MAX_TRY=3
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +39,9 @@ fi
 branch=$(git symbolic-ref --quiet --short HEAD) || die "HEAD tidak berada di branch (detached HEAD)."
 git rev-parse --verify -q '@{u}' >/dev/null || die "Branch $branch belum punya upstream. Jalankan: git push -u origin $branch"
 
-bash "$SCRIPT_DIR/update-lastmod" "$TARGET_DIR" "$TIME_LIMIT_SEC" || die "Sebagian file gagal diperbarui."
+if [[ -n "$TARGET_DIR" ]]; then
+    bash "$SCRIPT_DIR/update-lastmod" "$TARGET_DIR" "$TIME_LIMIT_SEC" || die "Sebagian file gagal diperbarui."
+fi
 
 git add -A || die "Git add gagal."
 if git diff --cached --quiet; then
