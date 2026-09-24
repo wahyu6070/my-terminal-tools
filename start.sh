@@ -63,7 +63,7 @@ download() {
 }
 
 echo "[*] Mengunduh script Python..."
-for file in adsterra_api.py cek_semua_data_adsterra_8_day.py cek_semua_data_adsterra_30_day.py cek_semua_data_adsterra_3_bulan.py cek_semua_data_adsterra.py z.py; do
+for file in adsterra_api.py adsterra_ui.py cek_semua_data_adsterra_8_day.py cek_semua_data_adsterra_30_day.py cek_semua_data_adsterra_3_bulan.py cek_semua_data_adsterra.py z.py; do
     download "$BASE_URL/python/$file" "$PYTHON_DIR/$file"
 done
 echo "[*] Mengunduh script Git..."

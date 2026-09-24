@@ -18,7 +18,7 @@ Description:
     - Bahasa Indonesia untuk nama bulan.
 
 Dependencies:
-    - requests, tabulate, colorama
+    - requests, colorama
 --------------------------------------------------------------------------------
 """
 
@@ -31,12 +31,12 @@ from adsterra_api import get_cached_api_key, get_with_token_refresh
 
 # Cek Library
 try:
-    from tabulate import tabulate
-    from colorama import init, Fore, Style, Back
+    from colorama import init, Fore, Style
     init(autoreset=True)
+    import adsterra_ui as ui
 except ImportError:
     print("Error: Library kurang.")
-    print("Run: pip install tabulate colorama requests")
+    print("Run: pip install colorama requests")
     sys.exit(1)
 
 # ==============================================================================
@@ -70,8 +70,6 @@ class AdsterraClient:
         chunk_number = 0
         all_items = []
 
-        print(f"{Fore.CYAN}[SYSTEM] Mengambil seluruh data bulanan...")
-        print(f"{Fore.CYAN}[SYSTEM] Periode: {Fore.YELLOW}{first_date:%Y-%m-%d}{Fore.CYAN} s/d {Fore.YELLOW}{final_date:%Y-%m-%d}")
 
         while chunk_start.date() <= final_date.date():
             chunk_end = min(chunk_start + timedelta(days=365), final_date)
@@ -81,7 +79,6 @@ class AdsterraClient:
                 "finish_date": chunk_end.strftime("%Y-%m-%d"),
                 "group_by": "date"
             }
-            print(f"{Fore.CYAN}[FETCH {chunk_number}] {params['start_date']} s/d {params['finish_date']}")
 
             try:
                 started = time.time()
@@ -90,20 +87,20 @@ class AdsterraClient:
                 )
                 duration = time.time() - started
             except requests.exceptions.RequestException as error:
-                print(f"{Fore.RED}[CONN] Error: {error}")
+                ui.error(f"[CONN] Error: {error}")
                 return None
 
             if response.status_code != 200:
-                print(f"{Fore.RED}[HTTP] Error {response.status_code}: {response.text}")
+                ui.error(f"[HTTP] Error {response.status_code}: {response.text}")
                 return None
 
             data = response.json()
             if data.get("errors"):
-                print(f"{Fore.RED}[API ERROR] {data['errors']}")
+                ui.error(f"[API ERROR] {data['errors']}")
                 return None
 
             all_items.extend(data.get("items", []))
-            print(f"{Fore.GREEN}[SUCCESS] Bagian {chunk_number} diterima ({duration:.2f} detik).")
+            ui.fetch_ok(f"[{chunk_number}] {params['start_date']} s/d {params['finish_date']}", duration)
             chunk_start = chunk_end + timedelta(days=1)
 
         return {"items": all_items, "itemCount": len(all_items)}
@@ -112,117 +109,85 @@ class AdsterraClient:
 # 3. LOGIKA TAMPILAN & META BULANAN
 # ==============================================================================
 
-def format_usd(val):
-    return f"${float(val):,.3f}"
+def aggregate_monthly(items):
+    """Kelompokkan data harian menjadi {'YYYY-MM': {'imp', 'rev', 'days'}}."""
+    monthly = {}
+    for item in items:
+        month_key = item.get("date", "-")[:7]
+        agg = monthly.setdefault(month_key, {"imp": 0, "rev": 0.0, "days": 0})
+        agg["imp"] += int(item.get("impression", 0))
+        agg["rev"] += float(item.get("revenue", 0.0))
+        agg["days"] += 1  # Hari yang memiliki data
+    return monthly
 
-def format_num(val):
-    return f"{int(val):,}".replace(",", ".")
-
-def get_indo_month(date_str):
-    """Mengubah '2026-02' menjadi 'Februari 2026'"""
-    try:
-        dt = datetime.strptime(date_str, '%Y-%m')
-        bulan_indo = {
-            'January': 'Januari', 'February': 'Februari', 'March': 'Maret',
-            'April': 'April', 'May': 'Mei', 'June': 'Juni',
-            'July': 'Juli', 'August': 'Agustus', 'September': 'September',
-            'October': 'Oktober', 'November': 'November', 'December': 'Desember'
-        }
-        month_en = dt.strftime('%B')
-        year = dt.strftime('%Y')
-        return f"{bulan_indo.get(month_en, month_en)} {year}"
-    except:
-        return date_str
+def month_stats(agg):
+    cpm = (agg["rev"] / agg["imp"] * 1000) if agg["imp"] > 0 else 0
+    daily = (agg["rev"] / agg["days"]) if agg["days"] > 0 else 0
+    return cpm, daily
 
 def show_report(data):
-    if not data or "items" not in data:
-        print(f"{Fore.RED}Data kosong.")
+    if not data or not data.get("items"):
+        ui.error("Data kosong.")
         return
 
-    items = data["items"]
-    items = sorted(items, key=lambda x: x.get('date', '0000-00-00'))
+    monthly = aggregate_monthly(data["items"])
+    months = sorted(monthly)  # Kronologis: bulan paling lama di atas
+    current_month = datetime.now().strftime("%Y-%m")
 
-    # Dictionary Akumulasi: {'2026-02': {'imp': 0, 'rev': 0, 'days': 0}}
-    monthly_agg = {}
+    year_rev = {}
+    for m_key in months:
+        year_rev[m_key[:4]] = year_rev.get(m_key[:4], 0.0) + monthly[m_key]["rev"]
 
-    print(f"\n{Fore.WHITE}Memproses statistik...\n")
+    total = {"imp": 0, "rev": 0.0, "days": 0}
+    rows = []
+    prev_daily = None
+    current_year = None
+    for m_key in months:
+        agg = monthly[m_key]
+        cpm, daily = month_stats(agg)
+        for key in total:
+            total[key] += agg[key]
 
-    for item in items:
-        # Data Mentah
-        date = item.get("date", "-")
-        imp = int(item.get("impression", 0))
-        rev = float(item.get("revenue", 0.0))
+        if m_key[:4] != current_year:
+            current_year = m_key[:4]
+            rows.append(ui.divider(f"{current_year} · {ui.usd(year_rev[current_year])}"))
 
-        # LOGIKA META BULANAN
-        month_key = date[:7] # Ambil YYYY-MM
+        # Tren dibandingkan rata-rata harian bulan sebelumnya (adil untuk bulan berjalan).
+        arrow = ui.trend(daily, prev_daily)
+        prev_daily = daily
 
-        if month_key not in monthly_agg:
-            monthly_agg[month_key] = {'imp': 0, 'rev': 0, 'days': 0}
+        name = ui.month_name(m_key, with_year=False) + ("*" if m_key == current_month else "")
+        rows.append(ui.row(
+            [name, str(agg["days"]), ui.num(agg["imp"]), ui.usd(cpm, 3), ui.usd(daily), ui.usd(agg["rev"])],
+            ["", "", "", ui.CPM_COLOR, "", ui.REV_COLOR],
+            arrow,
+        ))
 
-        monthly_agg[month_key]['imp'] += imp
-        monthly_agg[month_key]['rev'] += rev
-        monthly_agg[month_key]['days'] += 1 # Tambah 1 hari setiap kali data ditemukan
+    total_cpm, total_daily = month_stats(total)
+    bright = Style.BRIGHT
+    total_row = ui.row(
+        ["TOTAL", str(total["days"]), ui.num(total["imp"]), ui.usd(total_cpm, 3),
+         ui.usd(total_daily), ui.usd(total["rev"])],
+        [bright, bright, bright, ui.CPM_COLOR + bright, bright, ui.REV_COLOR],
+    )
 
-    # --- RENDER TABEL META BULANAN ---
-    print("\n" + "="*60)
-    print(f"{Back.MAGENTA}{Fore.WHITE}  META DATA: PERFORMA BULANAN & RATA-RATA HARIAN  {Style.RESET_ALL}")
-    print("="*60)
+    print()
+    ui.print_table(["BULAN", "HARI", "IMPRESI", "CPM", "RATA/HR", "REVENUE"],
+                   rows, total_row, arrow_col=4)
 
-    monthly_rows = []
-    # Urutkan kronologis: bulan paling lama di atas, paling baru di bawah.
-    sorted_months = sorted(monthly_agg.keys())
-
-    grand_total_rev = 0
-    grand_total_imp = 0
-
-    for m_key in sorted_months:
-        data_bulan = monthly_agg[m_key]
-
-        t_imp = data_bulan['imp']
-        t_rev = data_bulan['rev']
-        t_days = data_bulan['days'] # Jumlah hari aktif di bulan itu
-
-        # Hitung Real CPM
-        real_avg_cpm = (t_rev / t_imp * 1000) if t_imp > 0 else 0
-
-        # Hitung Rata-rata Revenue Per Hari (Fitur Baru)
-        avg_daily_rev = (t_rev / t_days) if t_days > 0 else 0
-
-        # Formatting Tampilan
-        nama_bulan = get_indo_month(m_key)
-
-        rev_disp = f"{Fore.GREEN}{Style.BRIGHT}{format_usd(t_rev)}{Style.RESET_ALL}"
-        cpm_disp = f"{Fore.YELLOW}{format_usd(real_avg_cpm)}{Style.RESET_ALL}"
-
-        # Kolom Baru: Rata-rata Harian
-        avg_daily_disp = format_usd(avg_daily_rev)
-
-        monthly_rows.append([
-            nama_bulan,
-            t_days, # Jumlah Hari
-            format_num(t_imp),
-            cpm_disp,
-            avg_daily_disp, # Kolom Baru
-            rev_disp
-        ])
-
-        grand_total_rev += t_rev
-        grand_total_imp += t_imp
-
-    # Header Tabel Bulanan
-    headers_monthly = ["BULAN", "HARI", "TOT IMPRESS", "AVG CPM", "RATA2 / HARI", "TOT REVENUE"]
-    print(tabulate(monthly_rows, headers=headers_monthly, tablefmt="fancy_grid", stralign="right"))
-
-    print("\n" + f"{Fore.WHITE}TOTAL AKUMULASI (SEMUA BULAN): {Fore.GREEN}{Style.BRIGHT}{format_usd(grand_total_rev)}{Style.RESET_ALL}")
-    print("-" * 60 + "\n")
+    best = max(months, key=lambda m: monthly[m]["rev"])
+    print()
+    print(f" {Style.DIM}Bulan terbaik  {Style.RESET_ALL}{ui.month_name(best)} "
+          f"{Fore.GREEN}{ui.usd(monthly[best]['rev'])}")
+    ui.info("* bulan berjalan · ▲▼ rata/hari vs bulan lalu")
+    print()
 
 # ==============================================================================
 # 4. MAIN
 # ==============================================================================
 
 if __name__ == "__main__":
-    print(f"\n{Fore.MAGENTA}{Style.BRIGHT}ADSTERRA ALL-MONTHS ANALYTICS (v5.0){Style.RESET_ALL}")
-    print("-" * 35)
+    ui.title("ADSTERRA · SEMUA BULAN", f"Sejak {ui.month_name(Config.START_DATE_ALL_TIME[:7])}")
 
     client = AdsterraClient(Config.API_KEY)
     res = client.get_stats()

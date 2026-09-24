@@ -16,7 +16,6 @@ Description:
 
 Dependencies:
     - requests
-    - tabulate
     - colorama
 --------------------------------------------------------------------------------
 """
@@ -30,14 +29,14 @@ from adsterra_api import get_cached_api_key, get_with_token_refresh
 
 # Bagian Import Library dengan Error Handling
 try:
-    from tabulate import tabulate
-    from colorama import init, Fore, Style, Back
+    from colorama import init
     # Inisialisasi colorama
     init(autoreset=True)
+    import adsterra_ui as ui
 except ImportError as e:
     print("Error: Library pendukung tidak ditemukan.")
     print(f"Detail: {e}")
-    print("Solusi: Jalankan perintah 'pip install tabulate colorama requests'")
+    print("Solusi: Jalankan perintah 'pip install colorama requests'")
     sys.exit(1)
 
 # ==============================================================================
@@ -99,10 +98,6 @@ class AdsterraClient:
             "group_by": "date"
         }
 
-        # 3. Log Visualisasi
-        print(f"{Fore.CYAN}[SYSTEM] Mode: Laporan Bulanan (30 Hari)")
-        print(f"{Fore.CYAN}[SYSTEM] Periode: {Fore.YELLOW}{start_date}{Fore.CYAN} s/d {Fore.YELLOW}{finish_date}")
-
         start_time = time.time()
 
         try:
@@ -113,127 +108,44 @@ class AdsterraClient:
             if response.status_code == 200:
                 data = response.json()
                 if "errors" in data and data["errors"]:
-                    print(f"{Fore.RED}[API ERROR] {data['errors']}")
+                    ui.error(f"[API ERROR] {data['errors']}")
                     return None
-                print(f"{Fore.GREEN}[SUCCESS] Data diterima dalam {duration:.2f} detik.")
+                ui.fetch_ok(f"{start_date} s/d {finish_date}", duration)
                 return data
 
             # Error Handling HTTP
             elif response.status_code == 422:
-                print(f"{Fore.YELLOW}[WARN] Validasi Gagal (422).")
+                ui.error("[WARN] Validasi Gagal (422).")
             elif response.status_code in (401, 403):
-                print(f"{Fore.RED}[AUTH] API key masih ditolak setelah pembaruan otomatis.")
+                ui.error("[AUTH] API key masih ditolak setelah pembaruan otomatis.")
             else:
-                print(f"{Fore.RED}[HTTP] Error Code: {response.status_code}")
+                ui.error(f"[HTTP] Error Code: {response.status_code}")
 
             return None
 
         except requests.exceptions.RequestException as e:
-            print(f"{Fore.RED}[NETWORK] Koneksi Gagal: {str(e)}")
+            ui.error(f"[NETWORK] Koneksi Gagal: {str(e)}")
             return None
 
 # ==============================================================================
 # 3. MANAJEMEN TAMPILAN
 # ==============================================================================
 
-def format_currency(value):
-    return f"${float(value):,.3f}"
-
-def format_number(value):
-    return f"{int(value):,}".replace(",", ".")
-
 def display_clean_report(data):
     """
     Menampilkan data 30 hari terakhir.
     """
-
     if not data or "items" not in data:
-        print(f"{Fore.RED}[ERROR] Data kosong.")
+        ui.error("[ERROR] Data kosong.")
         return
-
-    items = data["items"]
-    total_days = len(items)
-
-    if total_days == 0:
-        print(f"{Fore.YELLOW}[INFO] Tidak ada data dalam 30 hari terakhir.")
-        return
-
-    table_rows = []
-
-    # Variabel Total
-    total_imp = 0
-    total_rev = 0.0
-
-    # Sorting Tanggal
-    sorted_items = sorted(items, key=lambda x: x.get('date', '0000-00-00'))
-
-    print(f"\n{Fore.WHITE}Menampilkan statistik harian...\n")
-
-    for item in sorted_items:
-        date = item.get("date", "-")
-        imp = item.get("impression", 0)
-        cpm = item.get("cpm", 0.0)
-        rev = item.get("revenue", 0.0)
-
-        total_imp += imp
-        total_rev += rev
-
-        # Logika Warna Baris
-        rev_str = format_currency(rev)
-        if rev > 0:
-            rev_str = f"{Fore.GREEN}{rev_str}{Style.RESET_ALL}"
-        else:
-            rev_str = f"{Fore.LIGHTBLACK_EX}{rev_str}{Style.RESET_ALL}"
-
-        cpm_str = format_currency(cpm)
-        if cpm > 0.5: # Highlight jika CPM > $0.5
-            cpm_str = f"{Fore.YELLOW}{cpm_str}{Style.RESET_ALL}"
-
-        table_rows.append([
-            date,
-            format_number(imp),
-            cpm_str,
-            rev_str
-        ])
-
-    # Render Tabel
-    headers = ["TANGGAL", "IMPRESSIONS", "CPM", "REVENUE"]
-    print(tabulate(table_rows, headers=headers, tablefmt="simple_grid", stralign="right"))
-
-    # Render Summary
-    print("\n" + "="*40)
-    print(f"{Back.BLUE}{Fore.WHITE}  30 DAYS REVENUE SUMMARY  {Style.RESET_ALL}")
-    print("="*40)
-
-    avg_daily_rev = total_rev / total_days if total_days > 0 else 0
-
-    summary_data = [
-        ["Periode", "30 Hari Terakhir"],
-        ["Total Impressions", format_number(total_imp)],
-        ["Rata-rata Revenue/Hari", format_currency(avg_daily_rev)],
-        ["-----------------------", "----------------"],
-        ["TOTAL PENDAPATAN", f"{Fore.GREEN}{Style.BRIGHT}{format_currency(total_rev)}{Style.RESET_ALL}"]
-    ]
-
-    print(tabulate(summary_data, tablefmt="plain"))
-    print("="*40 + "\n")
+    ui.print_daily_report(data["items"])
 
 # ==============================================================================
 # 4. EKSEKUSI
 # ==============================================================================
 
 if __name__ == "__main__":
-    # Header ASCII 30 Days
-    print(f"\n{Fore.CYAN}{Style.BRIGHT}")
-    print(r"  ____   ___   ____    _ __   __ ____  ")
-    print(r" |___ \ / _ \ |  _ \  / \\ \ / // ___| ")
-    print(r"   __) | | | || | | |/ _ \\ V / \___ \ ")
-    print(r"  / __/| |_| || |_| / ___ \| |   ___) |")
-    print(r" |_____|\___/ |____/_/   \_\_|  |____/ ")
-    print(f"{Style.RESET_ALL}")
-
-    print(f"User: Wahyu Kurniawan | Mode: Last 30 Days Only")
-    print("-" * 50)
+    ui.title("ADSTERRA · 30 HARI TERAKHIR", "Hari ini + 30 hari sebelumnya")
 
     client = AdsterraClient(Config.API_KEY)
     json_result = client.get_stats()
